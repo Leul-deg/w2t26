@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: lms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lms_user
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: lms
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lms_user -d lms"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: golang:1.24
+    container_name: lms-backend
+    working_dir: /workspace/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://lms_user:changeme@postgres:5432/lms?sslmode=disable
+      DATABASE_TEST_URL: postgresql://lms_user:changeme@postgres:5432/lms_test?sslmode=disable
+      SESSION_SECRET: local-dev-session-secret-please-change-123456
+      CRYPTO_KEY_FILE: /run/secrets/lms.key
+      MIGRATIONS_PATH: /workspace/migrations
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8080
+      SESSION_INACTIVITY_SECONDS: 1800
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/workspace
+      - ./backend/.env.example:/workspace/backend/.env.example:ro
+    secrets:
+      - lms.key
+    command: >
+      bash -lc "
+      apt-get update &&
+      apt-get install -y --no-install-recommends postgresql-client openssl &&
+      go mod download &&
+      PGPASSWORD=changeme psql -h postgres -U lms_user -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'lms_test'\" | grep -q 1 || PGPASSWORD=changeme psql -h postgres -U lms_user -d postgres -c \"CREATE DATABASE lms_test OWNER lms_user;\" &&
+      go run ./cmd/migrate up &&
+      go run ./cmd/server
+      "
+
+  frontend:
+    image: node:20
+    container_name: lms-frontend
+    working_dir: /workspace/frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/workspace
+    command: >
+      bash -lc "
+      npm install &&
+      npm run dev -- --host 0.0.0.0 --port 3000
+      "
+
+volumes:
+  postgres_data:
+
+secrets:
+  lms.key:
+    file: ./backend/dev.lms.key
