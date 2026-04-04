@@ -4491,7 +4491,9 @@
       "session_id": "50a49610-8284-470c-8980-03a0bef2c1fc",
       "version": "2.1.91",
       "git_branch": "HEAD",
-      "cwd": "/home/leul/Documents/w2t26/repo"
+      "cwd": "/home/leul/Documents/w2t26/repo",
+      "originator": "claude_cli",
+      "source": "claude_jsonl"
     },
     "token_counts": [
       {
@@ -8626,6 +8628,28 @@
         "type": "file-history-snapshot",
         "timestamp": null,
         "data": null
+      }
+    ],
+    "session_id": "50a49610-8284-470c-8980-03a0bef2c1fc",
+    "cwd": "/home/leul/Documents/w2t26/repo",
+    "git_branch": "HEAD",
+    "originator": "claude_cli",
+    "source": "claude_jsonl",
+    "approval_policy": "default",
+    "collaboration_mode": {
+      "mode": "single"
+    },
+    "turn_contexts": [
+      {
+        "cwd": "/home/leul/Documents/w2t26/repo",
+        "model": "Claude Sonnet",
+        "originator": "claude_cli",
+        "source": "claude_jsonl",
+        "approval_policy": "default",
+        "collaboration_mode": {
+          "mode": "single"
+        },
+        "summary": "develop-3"
       }
     ]
   }

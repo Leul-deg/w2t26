@@ -44,10 +44,11 @@ services:
       apt-get update &&
       apt-get install -y --no-install-recommends postgresql-client openssl &&
       openssl rand -out /tmp/lms-dev.key 32 &&
-      go mod download &&
+      /usr/local/go/bin/go version &&
+      /usr/local/go/bin/go mod download &&
       PGPASSWORD=changeme psql -h postgres -U lms_user -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'lms_test'\" | grep -q 1 || PGPASSWORD=changeme psql -h postgres -U lms_user -d postgres -c \"CREATE DATABASE lms_test OWNER lms_user;\" &&
-      go run ./cmd/migrate up &&
-      go run ./cmd/server
+      /usr/local/go/bin/go run ./cmd/migrate up &&
+      /usr/local/go/bin/go run ./cmd/server
       "
 
   frontend:
