@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { programsApi, Enrollment, EnrollmentStatus } from '../../api/programs';
 import { useAuth } from '../../auth/AuthContext';
 
@@ -8,11 +8,12 @@ const STATUS_COLORS: Record<EnrollmentStatus, { bg: string; text: string }> = {
   waitlisted: { bg: '#e0f2fe', text: '#075985' },
   cancelled:  { bg: '#fee2e2', text: '#991b1b' },
   completed:  { bg: '#f3f4f6', text: '#374151' },
+  no_show:    { bg: '#ede9fe', text: '#5b21b6' },
 };
 
 export default function EnrollmentsPage() {
-  const { user } = useAuth();
-  const canWrite = user?.permissions?.includes('enrollments:write') ?? false;
+  const { hasPermission } = useAuth();
+  const canWrite = hasPermission('enrollments:write');
 
   // Filter by reader or program ID
   const [filterMode, setFilterMode] = useState<'reader' | 'program'>('reader');

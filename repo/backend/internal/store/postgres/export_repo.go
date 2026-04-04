@@ -48,21 +48,31 @@ func (r *ExportRepo) Finalise(ctx context.Context, id string, rowCount int, file
 
 // List returns a paginated, reverse-chronological list of export jobs for a branch.
 func (r *ExportRepo) List(ctx context.Context, branchID string, p model.Pagination) (model.PageResult[*model.ExportJob], error) {
+	where := ""
+	args := []any{}
+	if branchID != "" {
+		where = "WHERE branch_id = $1"
+		args = append(args, branchID)
+	}
+
 	var total int
 	if err := r.pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM lms.export_jobs WHERE branch_id = $1", branchID,
+		"SELECT COUNT(*) FROM lms.export_jobs "+where, args...,
 	).Scan(&total); err != nil {
 		return model.PageResult[*model.ExportJob]{}, err
 	}
 
+	args = append(args, p.Limit(), p.Offset())
+	limitPos := len(args) - 1
+	offsetPos := len(args)
 	rows, err := r.pool.Query(ctx, `
 		SELECT id::text, branch_id::text, export_type, filters_applied,
 		       row_count, file_name, exported_by::text, exported_at, workstation_id
 		FROM   lms.export_jobs
-		WHERE  branch_id = $1
+		`+where+`
 		ORDER  BY exported_at DESC
-		LIMIT  $2 OFFSET $3`,
-		branchID, p.Limit(), p.Offset(),
+		LIMIT  $`+itoa(limitPos)+` OFFSET $`+itoa(offsetPos),
+		args...,
 	)
 	if err != nil {
 		return model.PageResult[*model.ExportJob]{}, err

@@ -3,9 +3,9 @@ import { usersApi, UserListItem, CreateUserRequest } from '../../api/users';
 import { useAuth } from '../../auth/AuthContext';
 
 export default function UsersPage() {
-  const { user } = useAuth();
-  const canWrite = user?.permissions?.includes('users:write') ?? false;
-  const canAdmin = user?.permissions?.includes('users:admin') ?? false;
+  const { hasPermission } = useAuth();
+  const canWrite = hasPermission('users:write');
+  const canAdmin = hasPermission('users:admin');
 
   const [items, setItems] = useState<UserListItem[]>([]);
   const [total, setTotal] = useState(0);

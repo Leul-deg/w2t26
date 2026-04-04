@@ -94,8 +94,12 @@ func (r *ImportRepo) UpdateJobStatus(ctx context.Context, id, status string, err
 
 // ListJobs returns a paginated list of import jobs for a branch.
 func (r *ImportRepo) ListJobs(ctx context.Context, branchID string, p model.Pagination) (model.PageResult[*model.ImportJob], error) {
-	baseWhere := "WHERE branch_id = $1"
-	args := []any{branchID}
+	baseWhere := ""
+	args := []any{}
+	if branchID != "" {
+		baseWhere = "WHERE branch_id = $1"
+		args = append(args, branchID)
+	}
 
 	var total int
 	if err := r.pool.QueryRow(ctx,
@@ -105,6 +109,8 @@ func (r *ImportRepo) ListJobs(ctx context.Context, branchID string, p model.Pagi
 	}
 
 	args = append(args, p.Limit(), p.Offset())
+	limitPos := len(args) - 1
+	offsetPos := len(args)
 	rows, err := r.pool.Query(ctx, `
 		SELECT id::text, branch_id::text, import_type, status, file_name, file_path,
 		       row_count, error_count, error_summary,
@@ -113,7 +119,7 @@ func (r *ImportRepo) ListJobs(ctx context.Context, branchID string, p model.Pagi
 		FROM   lms.import_jobs
 		`+baseWhere+`
 		ORDER  BY uploaded_at DESC
-		LIMIT  $2 OFFSET $3`, args...)
+		LIMIT  $`+itoa(limitPos)+` OFFSET $`+itoa(offsetPos), args...)
 	if err != nil {
 		return model.PageResult[*model.ImportJob]{}, err
 	}

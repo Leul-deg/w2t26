@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	auditpkg "lms/internal/audit"
@@ -111,6 +112,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*model.Reader,
 
 // GetByID fetches a reader by ID within the caller's branch scope.
 func (s *Service) GetByID(ctx context.Context, id, branchID string) (*model.Reader, error) {
+	if !looksLikeUUID(id) {
+		return nil, &apperr.NotFound{Resource: "reader", ID: id}
+	}
 	return s.repo.GetByID(ctx, id, branchID)
 }
 
@@ -123,6 +127,9 @@ func (s *Service) GetByReaderNumber(ctx context.Context, number, branchID string
 // Sensitive fields that are non-nil in the request are re-encrypted and saved.
 // Sensitive fields that are nil are left unchanged (preserving existing ciphertext).
 func (s *Service) Update(ctx context.Context, id, branchID string, req UpdateRequest) (*model.Reader, error) {
+	if !looksLikeUUID(id) {
+		return nil, &apperr.NotFound{Resource: "reader", ID: id}
+	}
 	if req.FirstName == "" {
 		return nil, &apperr.Validation{Field: "first_name", Message: "first name is required"}
 	}
@@ -163,6 +170,9 @@ func (s *Service) Update(ctx context.Context, id, branchID string, req UpdateReq
 
 // UpdateStatus transitions the reader to a new status.
 func (s *Service) UpdateStatus(ctx context.Context, id, branchID, actorID, statusCode string) error {
+	if !looksLikeUUID(id) {
+		return &apperr.NotFound{Resource: "reader", ID: id}
+	}
 	validStatuses := map[string]bool{
 		"active":               true,
 		"frozen":               true,
@@ -193,6 +203,9 @@ func (s *Service) ListStatuses(ctx context.Context) ([]*model.ReaderStatus, erro
 // Caller must have already verified step-up authentication.
 // An audit event is logged regardless of whether decryption succeeds.
 func (s *Service) RevealSensitive(ctx context.Context, readerID, branchID string) (*model.SensitiveFields, error) {
+	if !looksLikeUUID(readerID) {
+		return nil, &apperr.NotFound{Resource: "reader", ID: readerID}
+	}
 	r, err := s.repo.GetByID(ctx, readerID, branchID)
 	if err != nil {
 		return nil, err
@@ -231,11 +244,17 @@ func (s *Service) RevealSensitive(ctx context.Context, readerID, branchID string
 
 // GetLoanHistory returns paginated loan history for the reader.
 func (s *Service) GetLoanHistory(ctx context.Context, readerID, branchID string, p model.Pagination) (model.PageResult[*LoanHistoryItem], error) {
+	if !looksLikeUUID(readerID) {
+		return model.PageResult[*LoanHistoryItem]{}, &apperr.NotFound{Resource: "reader", ID: readerID}
+	}
 	return s.repo.GetLoanHistory(ctx, readerID, branchID, p)
 }
 
 // GetCurrentHoldings returns the reader's currently checked-out items.
 func (s *Service) GetCurrentHoldings(ctx context.Context, readerID, branchID string) ([]*LoanHistoryItem, error) {
+	if !looksLikeUUID(readerID) {
+		return nil, &apperr.NotFound{Resource: "reader", ID: readerID}
+	}
 	return s.repo.GetCurrentHoldings(ctx, readerID, branchID)
 }
 
@@ -337,4 +356,14 @@ func generateReaderNumber() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("RN-%s-%s", time.Now().UTC().Format("20060102"), hex.EncodeToString(b)), nil
+}
+
+func looksLikeUUID(v string) bool {
+	if len(v) != 36 {
+		return false
+	}
+	if strings.Count(v, "-") != 4 {
+		return false
+	}
+	return true
 }

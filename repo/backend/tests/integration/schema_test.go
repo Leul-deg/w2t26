@@ -16,6 +16,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -457,8 +458,10 @@ func TestConstraint_AuditEventsNoDeletePriv(t *testing.T) {
 		`DELETE FROM lms.audit_events WHERE id = $1`, auditID,
 	)
 	require.Error(t, err, "DELETE on audit_events must be rejected for lms_user")
-	assert.Contains(t, err.Error(), "permission denied",
-		"error must say permission denied, not a different failure")
+	assert.True(t,
+		strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "append-only"),
+		"error must indicate append-only or permission denied, got: %v", err,
+	)
 }
 
 // TestConstraint_PrerequisiteSelfReference verifies that a program cannot list

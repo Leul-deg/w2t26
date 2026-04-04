@@ -32,6 +32,24 @@ CREATE TABLE audit_events (
 -- Enforced via:
 REVOKE UPDATE, DELETE ON audit_events FROM lms_user;
 
+-- Owners can bypass REVOKE, so enforce append-only semantics with a trigger too.
+CREATE OR REPLACE FUNCTION forbid_audit_mutation()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_events is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_forbid_audit_update
+BEFORE UPDATE ON audit_events
+FOR EACH ROW
+EXECUTE FUNCTION forbid_audit_mutation();
+
+CREATE TRIGGER trg_forbid_audit_delete
+BEFORE DELETE ON audit_events
+FOR EACH ROW
+EXECUTE FUNCTION forbid_audit_mutation();
+
 -- Indexes support the most common compliance queries.
 CREATE INDEX idx_audit_event_type   ON audit_events(event_type);
 CREATE INDEX idx_audit_actor        ON audit_events(actor_user_id);

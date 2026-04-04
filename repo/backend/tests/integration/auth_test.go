@@ -455,12 +455,29 @@ func TestAuth_BranchScope(t *testing.T) {
 // for sensitive fields instead of real values or empty strings.
 func TestAuth_MaskedFields(t *testing.T) {
 	app := newTestApp(t)
+	pool := testdb.Open(t)
+	defer pool.Close()
+	ctx := context.Background()
 
 	// Log in as admin (has "readers:read" permission).
 	cookie := loginAs(t, app, "admin", "Admin1234!")
 
-	// Hit the demo reader endpoint.
-	rec := doRequest(t, app, http.MethodGet, "/api/v1/readers/demo-reader-id", nil, cookie)
+	// Create a real reader in the main branch so the handler exercises repository-backed masking.
+	var readerID string
+	err := pool.QueryRow(ctx,
+		`INSERT INTO lms.readers (branch_id, reader_number, first_name, last_name, national_id_enc, contact_email_enc, contact_phone_enc, date_of_birth_enc)
+		 VALUES ($1, $2, 'Mask', 'Test', $3, $4, $5, $6)
+		 RETURNING id::text`,
+		"bbbbbbbb-0000-0000-0000-000000000001",
+		"MASK-"+fmt.Sprintf("%d", time.Now().UnixNano()),
+		"AQIDBA==", "BQYHCA==", "CQoLDA==", "DQ4PEA==",
+	).Scan(&readerID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM lms.readers WHERE id = $1`, readerID) //nolint
+	})
+
+	rec := doRequest(t, app, http.MethodGet, "/api/v1/readers/"+readerID, nil, cookie)
 	assert.Equal(t, http.StatusOK, rec.Code, "should return 200 for admin: body=%s", rec.Body.String())
 
 	var resp map[string]any
