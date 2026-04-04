@@ -1,0 +1,30 @@
+# ---- Backend ----
+backend/bin/
+backend/.env
+backend/*.key
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+
+# ---- Frontend ----
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/coverage/
+
+# ---- Environment / Secrets ----
+.env
+*.key
+*.pem
+
+# ---- Editor ----
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ---- Logs ----
+*.log
