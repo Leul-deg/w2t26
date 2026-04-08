@@ -34,6 +34,7 @@ function StarRating({ rating }: { rating: number }) {
 export default function FeedbackPage() {
   const { hasPermission } = useAuth();
   const canRead = hasPermission('feedback:read');
+  const canSubmit = hasPermission('feedback:submit');
   const canModerate = hasPermission('feedback:moderate');
 
   const [result, setResult] = useState<PageResult<Feedback> | null>(null);
@@ -84,8 +85,11 @@ export default function FeedbackPage() {
       feedbackApi.listTags().then(setAvailableTags).catch(() => {});
     } else {
       setLoading(false);
+      if (canSubmit) {
+        feedbackApi.listTags().then(setAvailableTags).catch(() => {});
+      }
     }
-  }, [canRead]);
+  }, [canRead, canSubmit]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,22 +127,34 @@ export default function FeedbackPage() {
     }
   };
 
-  if (!canRead) {
-    return <p style={{ padding: '1.5rem', color: '#dc2626' }}>You do not have permission to view feedback.</p>;
+  if (!canRead && !showSubmit) {
+    return (
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: '1.5rem' }}>
+        <p style={{ color: '#dc2626' }}>You do not have permission to view feedback.</p>
+        {canSubmit && (
+          <button onClick={() => setShowSubmit(true)}
+            style={{ padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer', marginTop: '0.75rem' }}>
+            Submit feedback
+          </button>
+        )}
+      </div>
+    );
   }
 
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Feedback</h1>
-        <button onClick={() => setShowSubmit(!showSubmit)}
-          style={{ padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
-          + Submit feedback
-        </button>
+        {canSubmit && (
+          <button onClick={() => setShowSubmit(!showSubmit)}
+            style={{ padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
+            + Submit feedback
+          </button>
+        )}
       </div>
 
       {/* Submit form */}
-      {showSubmit && (
+      {showSubmit && canSubmit && (
         <form onSubmit={handleSubmit} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '1.25rem', marginBottom: '1.5rem' }}>
           <h2 style={{ fontSize: '0.9375rem', fontWeight: 600, marginBottom: '0.75rem' }}>Submit feedback for a reader</h2>
           {submitError && <p style={{ color: '#dc2626', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{submitError}</p>}
@@ -201,29 +217,31 @@ export default function FeedbackPage() {
         </form>
       )}
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); fetchFeedback(e.target.value, typeFilter, 1); }}
-          style={{ padding: '0.375rem 0.625rem', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem' }}>
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="flagged">Flagged</option>
-        </select>
-        <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); fetchFeedback(statusFilter, e.target.value, 1); }}
-          style={{ padding: '0.375rem 0.625rem', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem' }}>
-          <option value="">All targets</option>
-          <option value="program">Program</option>
-          <option value="holding">Holding</option>
-        </select>
-      </div>
+      {canRead && (
+        <>
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); fetchFeedback(e.target.value, typeFilter, 1); }}
+              style={{ padding: '0.375rem 0.625rem', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem' }}>
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="flagged">Flagged</option>
+            </select>
+            <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); fetchFeedback(statusFilter, e.target.value, 1); }}
+              style={{ padding: '0.375rem 0.625rem', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.875rem' }}>
+              <option value="">All targets</option>
+              <option value="program">Program</option>
+              <option value="holding">Holding</option>
+            </select>
+          </div>
 
-      {loading && <p style={{ color: '#6b7280' }}>Loading…</p>}
-      {error && <p style={{ color: '#dc2626' }}>{error}</p>}
-      {result && result.items.length === 0 && !loading && <p style={{ color: '#6b7280' }}>No feedback found.</p>}
+          {loading && <p style={{ color: '#6b7280' }}>Loading…</p>}
+          {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+          {result && result.items.length === 0 && !loading && <p style={{ color: '#6b7280' }}>No feedback found.</p>}
 
-      {result && result.items.length > 0 && (
+          {result && result.items.length > 0 && (
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {result.items.map((fb) => (
@@ -274,6 +292,8 @@ export default function FeedbackPage() {
               <span style={{ fontSize: '0.8125rem' }}>Page {page} of {result.total_pages}</span>
               <button onClick={() => { setPage(page + 1); fetchFeedback(statusFilter, typeFilter, page + 1); }} disabled={page >= result.total_pages} style={{ padding: '0.25rem 0.5rem', fontSize: '0.8125rem' }}>Next →</button>
             </div>
+          )}
+            </>
           )}
         </>
       )}

@@ -70,6 +70,7 @@ func (h *Handler) ExportReaders(c echo.Context) error {
 		ActorUserID:   user.User.ID,
 		WorkstationID: ctxutil.GetWorkstationID(c),
 		ExportType:    "readers",
+		Format:        c.QueryParam("format"),
 	})
 	if err != nil {
 		return err
@@ -77,7 +78,7 @@ func (h *Handler) ExportReaders(c echo.Context) error {
 	c.Response().Header().Set(echo.HeaderContentDisposition,
 		`attachment; filename="`+result.FileName+`"`)
 	c.Response().Header().Set("X-Export-Job-ID", result.Job.ID)
-	return c.Blob(http.StatusOK, "text/csv; charset=utf-8", result.Data)
+	return c.Blob(http.StatusOK, result.ContentType, result.Data)
 }
 
 // ── Export holdings ───────────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ func (h *Handler) ExportHoldings(c echo.Context) error {
 		ActorUserID:   user.User.ID,
 		WorkstationID: ctxutil.GetWorkstationID(c),
 		ExportType:    "holdings",
+		Format:        c.QueryParam("format"),
 	})
 	if err != nil {
 		return err
@@ -105,7 +107,7 @@ func (h *Handler) ExportHoldings(c echo.Context) error {
 	c.Response().Header().Set(echo.HeaderContentDisposition,
 		`attachment; filename="`+result.FileName+`"`)
 	c.Response().Header().Set("X-Export-Job-ID", result.Job.ID)
-	return c.Blob(http.StatusOK, "text/csv; charset=utf-8", result.Data)
+	return c.Blob(http.StatusOK, result.ContentType, result.Data)
 }
 
 // ── Pagination helper ─────────────────────────────────────────────────────────

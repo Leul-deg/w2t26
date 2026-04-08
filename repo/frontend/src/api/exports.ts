@@ -32,8 +32,9 @@ function list(params?: { page?: number; per_page?: number }): Promise<PageResult
 // Returns { blob, fileName, jobId } so the caller can trigger a download.
 async function triggerExport(
   exportType: 'readers' | 'holdings',
+  format: 'csv' | 'xlsx' = 'csv',
 ): Promise<{ blob: Blob; fileName: string; jobId: string }> {
-  const res = await fetch(`/api/v1/exports/${exportType}`, {
+  const res = await fetch(`/api/v1/exports/${exportType}?format=${format}`, {
     method: 'POST',
     credentials: 'include',
   });

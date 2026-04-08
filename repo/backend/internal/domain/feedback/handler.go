@@ -80,7 +80,9 @@ func (h *Handler) Submit(c echo.Context) error {
 	if !ok {
 		return &apperr.Unauthorized{}
 	}
-	// Any authenticated user may submit feedback on behalf of a reader.
+	if !user.HasPermission("feedback:submit") {
+		return &apperr.Forbidden{Action: "submit", Resource: "feedback"}
+	}
 	branchID, _ := ctxutil.GetBranchID(ctx)
 
 	var req submitFeedbackReq

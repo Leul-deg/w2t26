@@ -65,7 +65,7 @@ func newAuthzTestApp(t *testing.T) *authzTestApp {
 	api := e.Group("/api/v1")
 
 	// Auth + users management routes.
-	authHandler := users.NewHandlerWithRepo(authService, userRepo)
+	authHandler := users.NewHandlerWithRepo(authService, userRepo, auditLogger)
 	authHandler.RegisterRoutes(api, requireAuth)
 	authHandler.RegisterUserRoutes(api, requireAuth, branchScopeMW)
 
@@ -498,6 +498,54 @@ func TestUsers_UnassignedBranch_UserListIsEmpty(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Empty(t, resp.Items,
 		"unassigned user must see 0 users (sentinel UUID matches no branch): got %d", len(resp.Items))
+}
+
+// TestUsers_GetUser_CrossBranch_Returns404 verifies that non-admin callers with
+// users:read cannot fetch a user assigned only to another branch.
+func TestUsers_GetUser_CrossBranch_Returns404(t *testing.T) {
+	app := newAuthzTestApp(t)
+
+	mainBranchID := "bbbbbbbb-0000-0000-0000-000000000001"
+	eastBranchID := "bbbbbbbb-0000-0000-0000-000000000002"
+
+	callerName := "users-read-main-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	callerID := createTestUser(t, app.testApp, callerName, callerName+"@test.local", "Password123!", "")
+	assignUserToBranch(t, callerID, mainBranchID)
+	assignUserRole(t, callerID, createTempRoleWithPermissions(t, "users:read"))
+
+	targetName := "users-target-east-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	targetID := createTestUser(t, app.testApp, targetName, targetName+"@test.local", "Password123!", "")
+	assignUserToBranch(t, targetID, eastBranchID)
+
+	cookie := loginAs(t, app.testApp, callerName, "Password123!")
+	rec := doRequest(t, app.testApp, http.MethodGet, "/api/v1/users/"+targetID, nil, cookie)
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"cross-branch GET /users/:id must return 404: body=%s", rec.Body.String())
+}
+
+// TestUsers_UpdateUser_CrossBranch_Returns404 verifies that non-admin callers
+// with users:write cannot update a user assigned only to another branch.
+func TestUsers_UpdateUser_CrossBranch_Returns404(t *testing.T) {
+	app := newAuthzTestApp(t)
+
+	mainBranchID := "bbbbbbbb-0000-0000-0000-000000000001"
+	eastBranchID := "bbbbbbbb-0000-0000-0000-000000000002"
+
+	callerName := "users-write-main-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	callerID := createTestUser(t, app.testApp, callerName, callerName+"@test.local", "Password123!", "")
+	assignUserToBranch(t, callerID, mainBranchID)
+	assignUserRole(t, callerID, createTempRoleWithPermissions(t, "users:write"))
+
+	targetName := "users-update-east-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	targetID := createTestUser(t, app.testApp, targetName, targetName+"@test.local", "Password123!", "")
+	assignUserToBranch(t, targetID, eastBranchID)
+
+	cookie := loginAs(t, app.testApp, callerName, "Password123!")
+	rec := doRequest(t, app.testApp, http.MethodPatch, "/api/v1/users/"+targetID, map[string]any{
+		"email": "updated@test.local",
+	}, cookie)
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"cross-branch PATCH /users/:id must return 404: body=%s", rec.Body.String())
 }
 
 // TestReports_AdminRunWithBranchParam_Returns200 verifies that administrator

@@ -1,7 +1,9 @@
 package users
 
 import (
+	"context"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"lms/internal/apperr"
+	"lms/internal/audit"
 	"lms/internal/ctxutil"
 	"lms/internal/model"
 )
@@ -20,8 +23,9 @@ const (
 
 // Handler holds the HTTP handlers for authentication and user management routes.
 type Handler struct {
-	service  *Service
-	userRepo Repository
+	service     *Service
+	userRepo    Repository
+	auditLogger *audit.Logger
 }
 
 // NewHandler creates a new auth Handler.
@@ -30,8 +34,8 @@ func NewHandler(service *Service) *Handler {
 }
 
 // NewHandlerWithRepo creates a Handler that also handles user management routes.
-func NewHandlerWithRepo(service *Service, userRepo Repository) *Handler {
-	return &Handler{service: service, userRepo: userRepo}
+func NewHandlerWithRepo(service *Service, userRepo Repository, auditLogger *audit.Logger) *Handler {
+	return &Handler{service: service, userRepo: userRepo, auditLogger: auditLogger}
 }
 
 // RegisterRoutes registers authentication routes on the given Echo group.
@@ -271,6 +275,11 @@ func (h *Handler) CreateUser(c echo.Context) error {
 		return err
 	}
 
+	if h.auditLogger != nil {
+		h.auditLogger.LogAdminChange(ctx, caller.User.ID, caller.User.Username, model.AuditUserCreated, "user", u.ID,
+			ctxutil.GetWorkstationID(c), nil, safeUserSnapshot(u))
+	}
+
 	return c.JSON(http.StatusCreated, u)
 }
 
@@ -283,6 +292,9 @@ func (h *Handler) GetUser(c echo.Context) error {
 	}
 	if !caller.HasPermission("users:read") {
 		return &apperr.Forbidden{Action: "read", Resource: "user"}
+	}
+	if err := h.enforceUserScope(ctx, caller, c.Param("id")); err != nil {
+		return err
 	}
 
 	u, err := h.userRepo.GetByID(ctx, c.Param("id"))
@@ -323,6 +335,9 @@ func (h *Handler) UpdateUser(c echo.Context) error {
 	if !caller.HasPermission("users:write") {
 		return &apperr.Forbidden{Action: "update", Resource: "user"}
 	}
+	if err := h.enforceUserScope(ctx, caller, c.Param("id")); err != nil {
+		return err
+	}
 
 	var req updateUserRequest
 	if err := c.Bind(&req); err != nil {
@@ -333,6 +348,7 @@ func (h *Handler) UpdateUser(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+	before := safeUserSnapshot(u)
 
 	if req.Email != nil {
 		u.Email = *req.Email
@@ -343,6 +359,11 @@ func (h *Handler) UpdateUser(c echo.Context) error {
 
 	if err := h.userRepo.Update(ctx, u); err != nil {
 		return err
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.LogAdminChange(ctx, caller.User.ID, caller.User.Username, model.AuditUserUpdated, "user", u.ID,
+			ctxutil.GetWorkstationID(c), before, safeUserSnapshot(u))
 	}
 
 	return c.JSON(http.StatusOK, u)
@@ -363,6 +384,9 @@ func (h *Handler) AssignRole(c echo.Context) error {
 	if !caller.HasPermission("users:admin") {
 		return &apperr.Forbidden{Action: "assign role", Resource: "user"}
 	}
+	if err := h.enforceUserScope(ctx, caller, c.Param("id")); err != nil {
+		return err
+	}
 
 	var req assignRoleRequest
 	if err := c.Bind(&req); err != nil {
@@ -372,8 +396,17 @@ func (h *Handler) AssignRole(c echo.Context) error {
 		return &apperr.Validation{Field: "role_id", Message: "role_id is required"}
 	}
 
+	beforeRoles, _ := h.userRepo.GetRoles(ctx, c.Param("id"))
+
 	if err := h.userRepo.AssignRole(ctx, c.Param("id"), req.RoleID, caller.User.ID); err != nil {
 		return err
+	}
+
+	if h.auditLogger != nil {
+		afterRoles, _ := h.userRepo.GetRoles(ctx, c.Param("id"))
+		h.auditLogger.LogAdminChange(ctx, caller.User.ID, caller.User.Username, model.AuditUserRoleChanged, "user", c.Param("id"),
+			ctxutil.GetWorkstationID(c), map[string]any{"roles": roleNames(beforeRoles)},
+			map[string]any{"roles": roleNames(afterRoles), "role_id": req.RoleID, "action": "assigned"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"role_id": req.RoleID})
@@ -389,9 +422,21 @@ func (h *Handler) RevokeRole(c echo.Context) error {
 	if !caller.HasPermission("users:admin") {
 		return &apperr.Forbidden{Action: "revoke role", Resource: "user"}
 	}
+	if err := h.enforceUserScope(ctx, caller, c.Param("id")); err != nil {
+		return err
+	}
+
+	beforeRoles, _ := h.userRepo.GetRoles(ctx, c.Param("id"))
 
 	if err := h.userRepo.RevokeRole(ctx, c.Param("id"), c.Param("role_id")); err != nil {
 		return err
+	}
+
+	if h.auditLogger != nil {
+		afterRoles, _ := h.userRepo.GetRoles(ctx, c.Param("id"))
+		h.auditLogger.LogAdminChange(ctx, caller.User.ID, caller.User.Username, model.AuditUserRoleChanged, "user", c.Param("id"),
+			ctxutil.GetWorkstationID(c), map[string]any{"roles": roleNames(beforeRoles)},
+			map[string]any{"roles": roleNames(afterRoles), "role_id": c.Param("role_id"), "action": "revoked"})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -412,6 +457,9 @@ func (h *Handler) AssignBranch(c echo.Context) error {
 	if !caller.HasPermission("users:admin") {
 		return &apperr.Forbidden{Action: "assign branch", Resource: "user"}
 	}
+	if err := h.enforceUserScope(ctx, caller, c.Param("id")); err != nil {
+		return err
+	}
 
 	var req assignBranchRequest
 	if err := c.Bind(&req); err != nil {
@@ -421,8 +469,17 @@ func (h *Handler) AssignBranch(c echo.Context) error {
 		return &apperr.Validation{Field: "branch_id", Message: "branch_id is required"}
 	}
 
+	beforeBranches, _ := h.userRepo.GetBranches(ctx, c.Param("id"))
+
 	if err := h.userRepo.AssignBranch(ctx, c.Param("id"), req.BranchID, caller.User.ID); err != nil {
 		return err
+	}
+
+	if h.auditLogger != nil {
+		afterBranches, _ := h.userRepo.GetBranches(ctx, c.Param("id"))
+		h.auditLogger.LogAdminChange(ctx, caller.User.ID, caller.User.Username, model.AuditUserBranchChanged, "user", c.Param("id"),
+			ctxutil.GetWorkstationID(c), map[string]any{"branch_ids": sortedCopy(beforeBranches)},
+			map[string]any{"branch_ids": sortedCopy(afterBranches), "branch_id": req.BranchID, "action": "assigned"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"branch_id": req.BranchID})
@@ -438,9 +495,21 @@ func (h *Handler) RevokeBranch(c echo.Context) error {
 	if !caller.HasPermission("users:admin") {
 		return &apperr.Forbidden{Action: "revoke branch", Resource: "user"}
 	}
+	if err := h.enforceUserScope(ctx, caller, c.Param("id")); err != nil {
+		return err
+	}
+
+	beforeBranches, _ := h.userRepo.GetBranches(ctx, c.Param("id"))
 
 	if err := h.userRepo.RevokeBranch(ctx, c.Param("id"), c.Param("branch_id")); err != nil {
 		return err
+	}
+
+	if h.auditLogger != nil {
+		afterBranches, _ := h.userRepo.GetBranches(ctx, c.Param("id"))
+		h.auditLogger.LogAdminChange(ctx, caller.User.ID, caller.User.Username, model.AuditUserBranchChanged, "user", c.Param("id"),
+			ctxutil.GetWorkstationID(c), map[string]any{"branch_ids": sortedCopy(beforeBranches)},
+			map[string]any{"branch_ids": sortedCopy(afterBranches), "branch_id": c.Param("branch_id"), "action": "revoked"})
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -468,6 +537,54 @@ func hashPassword(password string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+func (h *Handler) enforceUserScope(ctx context.Context, caller *model.UserWithRoles, targetUserID string) error {
+	for _, role := range caller.Roles {
+		if role == "administrator" {
+			return nil
+		}
+	}
+	branchID, _ := ctxutil.GetBranchID(ctx)
+	if branchID == "" {
+		return &apperr.Forbidden{Action: "access", Resource: "user"}
+	}
+	targetBranches, err := h.userRepo.GetBranches(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+	for _, targetBranchID := range targetBranches {
+		if targetBranchID == branchID {
+			return nil
+		}
+	}
+	return &apperr.NotFound{Resource: "user", ID: targetUserID}
+}
+
+func safeUserSnapshot(u *model.User) map[string]any {
+	return map[string]any{
+		"id":         u.ID,
+		"username":   u.Username,
+		"email":      u.Email,
+		"is_active":  u.IsActive,
+		"created_at": u.CreatedAt,
+		"updated_at": u.UpdatedAt,
+	}
+}
+
+func roleNames(roles []*model.Role) []string {
+	names := make([]string, 0, len(roles))
+	for _, role := range roles {
+		names = append(names, role.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func sortedCopy(values []string) []string {
+	out := append([]string(nil), values...)
+	slices.Sort(out)
+	return out
 }
 
 // stepUpRequest is the JSON body for POST /api/v1/auth/stepup.

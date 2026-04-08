@@ -417,9 +417,9 @@ func TestUpload_InvalidPublicationYear(t *testing.T) {
 	}
 }
 
-// TestErrorCSV_GeneratesDownloadableReport verifies that ErrorCSV returns a
+// TestErrorFile_GeneratesDownloadableReport verifies that ErrorFile returns a
 // non-empty CSV when the job has errors.
-func TestErrorCSV_GeneratesDownloadableReport(t *testing.T) {
+func TestErrorFile_GeneratesDownloadableReport(t *testing.T) {
 	repo := newStubRepo()
 	svc := newSvc(repo)
 
@@ -435,12 +435,15 @@ func TestErrorCSV_GeneratesDownloadableReport(t *testing.T) {
 		Data:        csv,
 	})
 
-	data, fileName, err := svc.ErrorCSV(context.Background(), result.Job.ID, "branch-1")
+	data, fileName, contentType, err := svc.ErrorFile(context.Background(), result.Job.ID, "branch-1", "csv")
 	if err != nil {
-		t.Fatalf("ErrorCSV failed: %v", err)
+		t.Fatalf("ErrorFile failed: %v", err)
 	}
 	if len(data) == 0 {
 		t.Error("expected non-empty error CSV")
+	}
+	if contentType != "text/csv; charset=utf-8" {
+		t.Errorf("unexpected content type: %q", contentType)
 	}
 	if !strings.Contains(fileName, ".csv") {
 		t.Errorf("unexpected file name (expected .csv extension): %q", fileName)
@@ -451,20 +454,120 @@ func TestErrorCSV_GeneratesDownloadableReport(t *testing.T) {
 	}
 }
 
-// TestTemplateCSV verifies that template CSVs are generated for all supported types.
-func TestTemplateCSV(t *testing.T) {
+// TestTemplateFile verifies that template files are generated for all supported types.
+func TestTemplateFile(t *testing.T) {
 	for _, importType := range []string{"readers", "holdings"} {
-		data, fileName, err := imports.TemplateCSV(importType)
+		data, fileName, contentType, err := imports.TemplateFile(importType, "csv")
 		if err != nil {
-			t.Errorf("TemplateCSV(%q) failed: %v", importType, err)
+			t.Errorf("TemplateFile(%q) failed: %v", importType, err)
 			continue
 		}
 		if len(data) == 0 {
-			t.Errorf("TemplateCSV(%q) returned empty data", importType)
+			t.Errorf("TemplateFile(%q) returned empty data", importType)
 		}
 		if !strings.HasSuffix(fileName, ".csv") {
-			t.Errorf("TemplateCSV(%q): unexpected file name %q", importType, fileName)
+			t.Errorf("TemplateFile(%q): unexpected file name %q", importType, fileName)
 		}
+		if contentType != "text/csv; charset=utf-8" {
+			t.Errorf("TemplateFile(%q): unexpected content type %q", importType, contentType)
+		}
+	}
+}
+
+func TestTemplateFile_XLSX(t *testing.T) {
+	data, fileName, contentType, err := imports.TemplateFile("readers", "xlsx")
+	if err != nil {
+		t.Fatalf("TemplateFile xlsx failed: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected non-empty xlsx template")
+	}
+	if !strings.HasSuffix(fileName, ".xlsx") {
+		t.Fatalf("unexpected xlsx file name: %q", fileName)
+	}
+	if contentType != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+		t.Fatalf("unexpected xlsx content type: %q", contentType)
+	}
+}
+
+func TestUpload_ComputesCompletenessMetrics(t *testing.T) {
+	repo := newStubRepo()
+	svc := newSvc(repo)
+
+	result, err := svc.UploadAndParse(context.Background(), imports.UploadRequest{
+		BranchID:    "branch-1",
+		ActorUserID: "actor-1",
+		ImportType:  "readers",
+		FileName:    "metrics.csv",
+		Data: makeCSV(
+			"reader_number,first_name,last_name,status_code",
+			"R001,Alice,Smith,active",
+			"R002,,Jones,active",
+		),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Job.ValidRowCount != 1 {
+		t.Fatalf("expected 1 valid row, got %d", result.Job.ValidRowCount)
+	}
+	if result.Job.InvalidRowCount != 1 {
+		t.Fatalf("expected 1 invalid row, got %d", result.Job.InvalidRowCount)
+	}
+	if result.Job.CompletenessPercent != 50 {
+		t.Fatalf("expected 50%% completeness, got %v", result.Job.CompletenessPercent)
+	}
+	if result.Job.MeetsCompletenessThreshold {
+		t.Fatal("expected completeness threshold to be unmet")
+	}
+}
+
+func TestGetJobPreview_ComputesCompletenessAcrossMoreThan5000Rows(t *testing.T) {
+	repo := newStubRepo()
+	svc := newSvc(repo)
+
+	rowCount := 5001
+	job := &model.ImportJob{
+		ID:         "job-large",
+		BranchID:   "branch-1",
+		ImportType: "readers",
+		Status:     "preview_ready",
+		FileName:   "large.csv",
+		RowCount:   &rowCount,
+	}
+	repo.jobs[job.ID] = job
+
+	rows := make([]*model.ImportRow, 0, rowCount)
+	for i := 0; i < rowCount; i++ {
+		status := "valid"
+		if i == rowCount-1 {
+			status = "invalid"
+		}
+		rows = append(rows, &model.ImportRow{
+			ID:        string(rune('a' + (i % 26))),
+			JobID:     job.ID,
+			RowNumber: i + 2,
+			Status:    status,
+		})
+	}
+	repo.rows[job.ID] = rows
+
+	gotJob, page, err := svc.GetJobPreview(context.Background(), job.ID, "branch-1", model.Pagination{Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(page.Items) != 20 {
+		t.Fatalf("expected preview page size 20, got %d", len(page.Items))
+	}
+	if gotJob.ValidRowCount != 5000 {
+		t.Fatalf("expected 5000 valid rows, got %d", gotJob.ValidRowCount)
+	}
+	if gotJob.InvalidRowCount != 1 {
+		t.Fatalf("expected 1 invalid row, got %d", gotJob.InvalidRowCount)
+	}
+	expected := float64(5000) * 100 / float64(5001)
+	if gotJob.CompletenessPercent != expected {
+		t.Fatalf("expected completeness %v, got %v", expected, gotJob.CompletenessPercent)
 	}
 }
 

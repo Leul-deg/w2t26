@@ -18,14 +18,14 @@ import (
 // stubExportRepo satisfies exports.Repository without a real database.
 type stubExportRepo struct{}
 
-func (r *stubExportRepo) Create(_ context.Context, _ *model.ExportJob) error                          { return nil }
-func (r *stubExportRepo) Finalise(_ context.Context, _ string, _ int, _ string) error                 { return nil }
+func (r *stubExportRepo) Create(_ context.Context, _ *model.ExportJob) error          { return nil }
+func (r *stubExportRepo) Finalise(_ context.Context, _ string, _ int, _ string) error { return nil }
 func (r *stubExportRepo) List(_ context.Context, _ string, p model.Pagination) (model.PageResult[*model.ExportJob], error) {
 	return model.NewPageResult([]*model.ExportJob{}, 0, p), nil
 }
 
 // TestExportReaders_MissingPermission verifies that POST /exports/readers returns
-// a Forbidden error when the caller does not hold the exports:write permission.
+// a Forbidden error when the caller does not hold the exports:create permission.
 func TestExportReaders_MissingPermission(t *testing.T) {
 	e := echo.New()
 	e.HTTPErrorHandler = apierr.ErrorHandler
@@ -33,7 +33,7 @@ func TestExportReaders_MissingPermission(t *testing.T) {
 	userWithoutPerm := &model.UserWithRoles{
 		User:        &model.User{ID: "u-001"},
 		Roles:       []string{"content_moderator"},
-		Permissions: []string{"content:read"}, // deliberately no exports:write
+		Permissions: []string{"content:read"}, // deliberately no exports:create
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/exports/readers", nil)
@@ -72,7 +72,7 @@ func TestExportHoldings_MissingPermission(t *testing.T) {
 	userWithoutPerm := &model.UserWithRoles{
 		User:        &model.User{ID: "u-002"},
 		Roles:       []string{"operations_staff"},
-		Permissions: []string{"readers:read"}, // no exports:write
+		Permissions: []string{"readers:read"}, // no exports:create
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/exports/holdings", nil)
@@ -96,7 +96,7 @@ func TestExportHoldings_MissingPermission(t *testing.T) {
 }
 
 // TestListExportJobs_MissingPermission verifies that GET /exports returns 403
-// when the caller has neither exports:read nor exports:write.
+// when the caller does not hold exports:create.
 func TestListExportJobs_MissingPermission(t *testing.T) {
 	e := echo.New()
 	e.HTTPErrorHandler = apierr.ErrorHandler

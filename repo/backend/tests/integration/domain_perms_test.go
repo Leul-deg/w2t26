@@ -4,6 +4,7 @@ package integration
 // imports, exports, and reports routes via a full wired test application.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -15,13 +16,15 @@ import (
 
 	"lms/internal/apierr"
 	auditpkg "lms/internal/audit"
+	"lms/internal/domain/appeals"
+	copies "lms/internal/domain/copies"
 	"lms/internal/domain/exports"
+	"lms/internal/domain/feedback"
 	"lms/internal/domain/holdings"
 	"lms/internal/domain/imports"
 	"lms/internal/domain/reports"
 	"lms/internal/domain/stocktake"
 	"lms/internal/domain/users"
-	copies "lms/internal/domain/copies"
 	appmw "lms/internal/middleware"
 	"lms/internal/store/postgres"
 	"lms/tests/testdb"
@@ -91,6 +94,18 @@ func newFullTestApp(t *testing.T) *fullTestApp {
 	reportsHandler := reports.NewHandler(reportsService)
 	reportsHandler.RegisterRoutes(api, requireAuth, branchScopeMW)
 
+	// Feedback routes.
+	feedbackRepo := postgres.NewFeedbackRepo(pool)
+	feedbackService := feedback.NewService(feedbackRepo, auditLogger)
+	feedbackHandler := feedback.NewHandler(feedbackService)
+	feedbackHandler.RegisterRoutes(api, requireAuth, branchScopeMW)
+
+	// Appeals routes.
+	appealsRepo := postgres.NewAppealsRepo(pool)
+	appealsService := appeals.NewService(appealsRepo, auditLogger)
+	appealsHandler := appeals.NewHandler(appealsService)
+	appealsHandler.RegisterRoutes(api, requireAuth, branchScopeMW)
+
 	base := &testApp{
 		e:           e,
 		userRepo:    userRepo,
@@ -101,6 +116,30 @@ func newFullTestApp(t *testing.T) *fullTestApp {
 		auditLogger: auditLogger,
 	}
 	return &fullTestApp{testApp: base}
+}
+
+func insertTestReaderInBranch(t *testing.T, branchID string) string {
+	t.Helper()
+	pool := testdb.Open(t)
+	defer pool.Close()
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	var readerID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO lms.readers (branch_id, reader_number, first_name, last_name, status_code)
+		VALUES ($1, $2, 'Fixture', 'Reader', 'active')
+		RETURNING id::text`,
+		branchID, "PERM-"+suffix,
+	).Scan(&readerID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		p := testdb.Open(t)
+		defer p.Close()
+		p.Exec(context.Background(), `DELETE FROM lms.readers WHERE id = $1`, readerID) //nolint
+	})
+	return readerID
 }
 
 // ── Holdings ──────────────────────────────────────────────────────────────────
@@ -404,4 +443,82 @@ func TestReports_OperationsStaffCanListDefinitions(t *testing.T) {
 	rec := doRequest(t, app.testApp, http.MethodGet, "/api/v1/reports/definitions", nil, cookie)
 	assert.Equal(t, http.StatusOK, rec.Code,
 		"operations_staff should get 200 on GET /reports/definitions: body=%s", rec.Body.String())
+}
+
+// ── Feedback / appeals submit permissions ─────────────────────────────────────
+
+func TestFeedback_SubmitRequiresPermission(t *testing.T) {
+	app := newFullTestApp(t)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "noperm-feedback-submit-" + suffix
+	createTestUser(t, app.testApp, username, username+"@test.local", "Password123!", "")
+
+	cookie := loginAs(t, app.testApp, username, "Password123!")
+
+	rec := doRequest(t, app.testApp, http.MethodPost, "/api/v1/feedback", map[string]any{
+		"reader_id":   "00000000-0000-0000-0000-000000000011",
+		"target_type": "program",
+		"target_id":   "00000000-0000-0000-0000-000000000012",
+		"rating":      5,
+	}, cookie)
+	assert.Equal(t, http.StatusForbidden, rec.Code,
+		"user without feedback:submit should get 403 on POST /feedback: body=%s", rec.Body.String())
+}
+
+func TestFeedback_OperationsStaffCanSubmit(t *testing.T) {
+	app := newFullTestApp(t)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "ops-feedback-submit-" + suffix
+	userID := createTestUser(t, app.testApp, username, username+"@test.local", "Password123!", "operations_staff")
+	const branchID = "bbbbbbbb-0000-0000-0000-000000000001"
+	assignUserToBranch(t, userID, branchID)
+	readerID := insertTestReaderInBranch(t, branchID)
+
+	cookie := loginAs(t, app.testApp, username, "Password123!")
+
+	rec := doRequest(t, app.testApp, http.MethodPost, "/api/v1/feedback", map[string]any{
+		"reader_id":   readerID,
+		"target_type": "program",
+		"target_id":   "00000000-0000-0000-0000-000000000022",
+		"rating":      4,
+	}, cookie)
+	assert.Equal(t, http.StatusCreated, rec.Code,
+		"operations_staff should get 201 on POST /feedback: body=%s", rec.Body.String())
+}
+
+func TestAppeals_SubmitRequiresPermission(t *testing.T) {
+	app := newFullTestApp(t)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "noperm-appeal-submit-" + suffix
+	createTestUser(t, app.testApp, username, username+"@test.local", "Password123!", "")
+
+	cookie := loginAs(t, app.testApp, username, "Password123!")
+
+	rec := doRequest(t, app.testApp, http.MethodPost, "/api/v1/appeals", map[string]any{
+		"reader_id":   "00000000-0000-0000-0000-000000000031",
+		"appeal_type": "other",
+		"reason":      "Need manual review",
+	}, cookie)
+	assert.Equal(t, http.StatusForbidden, rec.Code,
+		"user without appeals:submit should get 403 on POST /appeals: body=%s", rec.Body.String())
+}
+
+func TestAppeals_OperationsStaffCanSubmit(t *testing.T) {
+	app := newFullTestApp(t)
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "ops-appeal-submit-" + suffix
+	userID := createTestUser(t, app.testApp, username, username+"@test.local", "Password123!", "operations_staff")
+	const branchID = "bbbbbbbb-0000-0000-0000-000000000001"
+	assignUserToBranch(t, userID, branchID)
+	readerID := insertTestReaderInBranch(t, branchID)
+
+	cookie := loginAs(t, app.testApp, username, "Password123!")
+
+	rec := doRequest(t, app.testApp, http.MethodPost, "/api/v1/appeals", map[string]any{
+		"reader_id":   readerID,
+		"appeal_type": "other",
+		"reason":      "Need manual review",
+	}, cookie)
+	assert.Equal(t, http.StatusCreated, rec.Code,
+		"operations_staff should get 201 on POST /appeals: body=%s", rec.Body.String())
 }

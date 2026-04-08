@@ -30,7 +30,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function ImportHistoryPage() {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
-  const canRead = hasPermission('imports:read') || hasPermission('imports:write');
+  const canRead = hasPermission('imports:preview') || hasPermission('imports:create');
 
   const [result, setResult] = useState<PageResult<ImportJob> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,7 +61,7 @@ export default function ImportHistoryPage() {
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Import History</h1>
-        {hasPermission('imports:write') && (
+        {hasPermission('imports:create') && (
           <button
             onClick={() => navigate('/imports')}
             style={{
@@ -117,7 +117,7 @@ export default function ImportHistoryPage() {
                     <td style={{ padding: '0.5rem 0.75rem' }}>
                       {job.error_count > 0 && (
                         <a
-                          href={importsApi.errorsCsvUrl(job.id)}
+                          href={importsApi.errorsFileUrl(job.id, 'csv')}
                           download
                           style={{ fontSize: '0.75rem', color: '#b91c1c', textDecoration: 'underline' }}
                         >

@@ -59,7 +59,7 @@ func asForbiddenUser(err error, target **apperr.Forbidden) bool {
 // without users:read before any repo call is made.
 func TestListUsers_RequiresUsersRead(t *testing.T) {
 	e := echo.New()
-	h := users.NewHandlerWithRepo(nil, nil)
+	h := users.NewHandlerWithRepo(nil, nil, nil)
 	c, _ := newUserCtx(e, http.MethodGet, "/users", "")
 	withAdminUser(c, userWithPermissions())
 
@@ -77,7 +77,7 @@ func TestListUsers_RequiresUsersRead(t *testing.T) {
 // without users:write before any repo call is made.
 func TestCreateUser_RequiresUsersWrite(t *testing.T) {
 	e := echo.New()
-	h := users.NewHandlerWithRepo(nil, nil)
+	h := users.NewHandlerWithRepo(nil, nil, nil)
 	c, _ := newUserCtx(e, http.MethodPost, "/users", `{"username":"x","email":"x@x.com","password":"pass"}`)
 	withAdminUser(c, userWithPermissions("users:read"))
 
@@ -95,7 +95,7 @@ func TestCreateUser_RequiresUsersWrite(t *testing.T) {
 // without users:read before any repo call is made.
 func TestGetUser_RequiresUsersRead(t *testing.T) {
 	e := echo.New()
-	h := users.NewHandlerWithRepo(nil, nil)
+	h := users.NewHandlerWithRepo(nil, nil, nil)
 	c, _ := newUserCtx(e, http.MethodGet, "/users/u1", "")
 	withAdminUser(c, userWithPermissions())
 	c.SetParamNames("id")
@@ -115,7 +115,7 @@ func TestGetUser_RequiresUsersRead(t *testing.T) {
 // without users:admin (users:read alone is insufficient).
 func TestAssignRole_RequiresUsersAdmin(t *testing.T) {
 	e := echo.New()
-	h := users.NewHandlerWithRepo(nil, nil)
+	h := users.NewHandlerWithRepo(nil, nil, nil)
 	c, _ := newUserCtx(e, http.MethodPost, "/users/u1/roles", `{"role_id":"r1"}`)
 	withAdminUser(c, userWithPermissions("users:read", "users:write"))
 	c.SetParamNames("id")
@@ -135,7 +135,7 @@ func TestAssignRole_RequiresUsersAdmin(t *testing.T) {
 // without users:admin (users:read alone is insufficient).
 func TestAssignBranch_RequiresUsersAdmin(t *testing.T) {
 	e := echo.New()
-	h := users.NewHandlerWithRepo(nil, nil)
+	h := users.NewHandlerWithRepo(nil, nil, nil)
 	c, _ := newUserCtx(e, http.MethodPost, "/users/u1/branches", `{"branch_id":"b1"}`)
 	withAdminUser(c, userWithPermissions("users:read", "users:write"))
 	c.SetParamNames("id")

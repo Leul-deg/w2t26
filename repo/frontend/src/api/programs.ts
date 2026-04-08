@@ -196,7 +196,7 @@ function addPrerequisite(programId: string, requiredProgramId: string, descripti
 }
 
 function removePrerequisite(programId: string, requiredProgramId: string): Promise<void> {
-  return apiClient.patch<void>(`/programs/${programId}/prerequisites/${requiredProgramId}`);
+  return apiClient.delete<void>(`/programs/${programId}/prerequisites/${requiredProgramId}`);
 }
 
 // Rule management
@@ -207,6 +207,10 @@ function addRule(programId: string, rule: {
   reason?: string;
 }): Promise<EnrollmentRule> {
   return apiClient.post<EnrollmentRule>(`/programs/${programId}/rules`, rule);
+}
+
+function removeRule(programId: string, ruleId: string): Promise<void> {
+  return apiClient.delete<void>(`/programs/${programId}/rules/${ruleId}`);
 }
 
 export const programsApi = {
@@ -224,4 +228,5 @@ export const programsApi = {
   addPrerequisite,
   removePrerequisite,
   addRule,
+  removeRule,
 };

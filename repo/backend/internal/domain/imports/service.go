@@ -1,4 +1,4 @@
-// Package imports implements bulk import of readers and holdings from CSV files.
+// Package imports implements bulk import of readers and holdings from CSV/XLSX files.
 //
 // Lifecycle:
 //
@@ -18,6 +18,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -25,9 +26,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xuri/excelize/v2"
 
-	auditpkg "lms/internal/audit"
 	"lms/internal/apperr"
+	auditpkg "lms/internal/audit"
 	"lms/internal/model"
 )
 
@@ -61,16 +63,18 @@ type UploadRequest struct {
 	WorkstationID string
 	ImportType    string // readers | holdings
 	FileName      string
-	Data          []byte // raw CSV bytes
+	Data          []byte // raw uploaded file bytes (CSV or XLSX)
 }
 
 // UploadResult is returned after parsing and staging. If HasErrors is true,
 // the import cannot be committed — the caller should download the error CSV.
 type UploadResult struct {
-	Job      *model.ImportJob
+	Job       *model.ImportJob
 	HasErrors bool
-	Errors   []RowError
+	Errors    []RowError
 }
+
+const importCompletenessThresholdPercent = 100.0
 
 // UploadAndParse parses the CSV, validates every row, stages the results, and
 // returns the job with a preview-ready or failed status. The uploaded file is
@@ -85,9 +89,6 @@ func (s *Service) UploadAndParse(ctx context.Context, req UploadRequest) (*Uploa
 	}
 	if len(req.Data) == 0 {
 		return nil, &apperr.Validation{Field: "file", Message: "file is empty"}
-	}
-	if !utf8.Valid(req.Data) {
-		return nil, &apperr.Validation{Field: "file", Message: "file must be valid UTF-8; re-save as UTF-8 CSV from Excel"}
 	}
 
 	// Create the job record (status: previewing while we parse).
@@ -104,7 +105,7 @@ func (s *Service) UploadAndParse(ctx context.Context, req UploadRequest) (*Uploa
 	}
 
 	// Parse and validate.
-	importRows, rowErrors, parseErr := parseAndValidate(importType, req.BranchID, req.Data)
+	importRows, rowErrors, parseErr := parseAndValidate(importType, req.FileName, req.Data)
 	if parseErr != nil {
 		// Structure-level failure (bad headers etc.) — mark job failed immediately.
 		_ = s.repo.UpdateJobStatus(ctx, job.ID, "failed", 1, []RowError{{Row: 0, Field: "file", Message: parseErr.Error()}})
@@ -134,11 +135,12 @@ func (s *Service) UploadAndParse(ctx context.Context, req UploadRequest) (*Uploa
 	if len(rowErrors) > 0 {
 		job.ErrorSummary = rowErrors
 	}
+	populateCompletenessFromRows(job, importRows)
 
 	return &UploadResult{
-		Job:      job,
+		Job:       job,
 		HasErrors: len(rowErrors) > 0,
-		Errors:   rowErrors,
+		Errors:    rowErrors,
 	}, nil
 }
 
@@ -154,12 +156,25 @@ func (s *Service) GetJobPreview(ctx context.Context, jobID, branchID string, p m
 	if err != nil {
 		return nil, model.PageResult[*model.ImportRow]{}, err
 	}
+	allRows, err := s.loadAllRows(ctx, jobID)
+	if err == nil {
+		populateCompletenessFromRows(job, allRows)
+	} else {
+		populateCompletenessFromJob(job)
+	}
 	return job, rows, nil
 }
 
 // ListJobs returns a paginated list of import jobs for the branch.
 func (s *Service) ListJobs(ctx context.Context, branchID string, p model.Pagination) (model.PageResult[*model.ImportJob], error) {
-	return s.repo.ListJobs(ctx, branchID, p)
+	result, err := s.repo.ListJobs(ctx, branchID, p)
+	if err != nil {
+		return result, err
+	}
+	for _, job := range result.Items {
+		populateCompletenessFromJob(job)
+	}
+	return result, nil
 }
 
 // ── Commit ────────────────────────────────────────────────────────────────────
@@ -185,9 +200,8 @@ func (s *Service) CommitJob(ctx context.Context, jobID, branchID, actorID string
 		}
 	}
 
-	// Load all staged rows for commit. Use a large page to load everything
-	// in one shot — the validator already enforced row limits.
-	rowsPage, err := s.repo.ListRows(ctx, jobID, model.Pagination{Page: 1, PerPage: 5000})
+	// Load all staged rows for commit so large jobs are fully processed.
+	allRows, err := s.loadAllRows(ctx, jobID)
 	if err != nil {
 		return nil, fmt.Errorf("load rows for commit: %w", err)
 	}
@@ -201,9 +215,9 @@ func (s *Service) CommitJob(ctx context.Context, jobID, branchID, actorID string
 	var commitErrors []RowError
 	switch job.ImportType {
 	case "readers":
-		commitErrors = commitReaders(ctx, tx, job.BranchID, rowsPage.Items)
+		commitErrors = commitReaders(ctx, tx, job.BranchID, allRows)
 	case "holdings":
-		commitErrors = commitHoldings(ctx, tx, job.BranchID, rowsPage.Items)
+		commitErrors = commitHoldings(ctx, tx, job.BranchID, allRows)
 	default:
 		_ = tx.Rollback(ctx)
 		return nil, &apperr.Validation{Field: "import_type", Message: "unsupported import type"}
@@ -215,6 +229,7 @@ func (s *Service) CommitJob(ctx context.Context, jobID, branchID, actorID string
 		job.Status = "rolled_back"
 		job.ErrorCount = len(commitErrors)
 		job.ErrorSummary = commitErrors
+		populateCompletenessFromJob(job)
 		if s.auditLogger != nil {
 			s.auditLogger.LogImportEvent(ctx, actorID, "", model.AuditImportRolledBack, job.ID, job.BranchID,
 				map[string]any{"import_type": job.ImportType, "error_count": len(commitErrors)})
@@ -229,14 +244,16 @@ func (s *Service) CommitJob(ctx context.Context, jobID, branchID, actorID string
 		_ = tx.Rollback(ctx)
 		_ = s.repo.UpdateJobStatus(ctx, job.ID, "rolled_back", 1, []RowError{{Row: 0, Field: "transaction", Message: err.Error()}})
 		job.Status = "rolled_back"
+		populateCompletenessFromJob(job)
 		return job, fmt.Errorf("commit transaction: %w", err)
 	}
 
 	_ = s.repo.UpdateJobStatus(ctx, job.ID, "committed", 0, nil)
 	job.Status = "committed"
+	populateCompletenessFromJob(job)
 	if s.auditLogger != nil {
 		s.auditLogger.LogImportEvent(ctx, actorID, "", model.AuditImportCommitted, job.ID, job.BranchID,
-			map[string]any{"import_type": job.ImportType, "row_count": len(rowsPage.Items)})
+			map[string]any{"import_type": job.ImportType, "row_count": len(allRows)})
 	}
 	return job, nil
 }
@@ -260,6 +277,7 @@ func (s *Service) RollbackJob(ctx context.Context, jobID, branchID, actorID stri
 		return nil, err
 	}
 	job.Status = "rolled_back"
+	populateCompletenessFromJob(job)
 	if s.auditLogger != nil {
 		s.auditLogger.LogImportEvent(ctx, actorID, "", model.AuditImportRolledBack, job.ID, job.BranchID,
 			map[string]any{"import_type": job.ImportType, "reason": "manual_rollback"})
@@ -267,22 +285,20 @@ func (s *Service) RollbackJob(ctx context.Context, jobID, branchID, actorID stri
 	return job, nil
 }
 
-// ── Error CSV download ────────────────────────────────────────────────────────
+// ── Error file download ───────────────────────────────────────────────────────
 
-// ErrorCSV generates a downloadable CSV of row-level errors for a job.
+// ErrorFile generates a downloadable CSV or XLSX file of row-level errors for a job.
 // Columns: row_number, field, message.
-func (s *Service) ErrorCSV(ctx context.Context, jobID, branchID string) ([]byte, string, error) {
+func (s *Service) ErrorFile(ctx context.Context, jobID, branchID, format string) ([]byte, string, string, error) {
 	job, err := s.repo.GetJob(ctx, jobID, branchID)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if job.ErrorCount == 0 {
-		return nil, "", &apperr.Validation{Field: "error_count", Message: "no errors to download"}
+		return nil, "", "", &apperr.Validation{Field: "error_count", Message: "no errors to download"}
 	}
 
-	var buf bytes.Buffer
-	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"row_number", "field", "message"})
+	records := [][]string{{"row_number", "field", "message"}}
 
 	if errs, ok := job.ErrorSummary.([]any); ok {
 		for _, e := range errs {
@@ -290,24 +306,22 @@ func (s *Service) ErrorCSV(ctx context.Context, jobID, branchID string) ([]byte,
 				row := strconv.Itoa(int(toFloat64(m["row"])))
 				field, _ := m["field"].(string)
 				msg, _ := m["message"].(string)
-				_ = w.Write([]string{row, field, msg})
+				records = append(records, []string{row, field, msg})
 			}
 		}
 	}
-	w.Flush()
 
 	prefix := job.ID
 	if len(prefix) > 8 {
 		prefix = prefix[:8]
 	}
-	fileName := fmt.Sprintf("import_%s_errors.csv", prefix)
-	return buf.Bytes(), fileName, nil
+	return encodeTabular(records, fmt.Sprintf("import_%s_errors", prefix), format)
 }
 
-// ── Template CSV download ─────────────────────────────────────────────────────
+// ── Template file download ────────────────────────────────────────────────────
 
-// TemplateCSV returns a CSV template (header row only) for the given import type.
-func TemplateCSV(importType string) ([]byte, string, error) {
+// TemplateFile returns a CSV or XLSX template (header row only) for the given import type.
+func TemplateFile(importType, format string) ([]byte, string, string, error) {
 	var headers []string
 	switch importType {
 	case "readers":
@@ -315,13 +329,9 @@ func TemplateCSV(importType string) ([]byte, string, error) {
 	case "holdings":
 		headers = holdingsCSVHeaders
 	default:
-		return nil, "", &apperr.Validation{Field: "import_type", Message: "unknown import type"}
+		return nil, "", "", &apperr.Validation{Field: "import_type", Message: "unknown import type"}
 	}
-	var buf bytes.Buffer
-	w := csv.NewWriter(&buf)
-	_ = w.Write(headers)
-	w.Flush()
-	return buf.Bytes(), importType + "_import_template.csv", nil
+	return encodeTabular([][]string{headers}, importType+"_import_template", format)
 }
 
 // ── CSV parsing helpers ───────────────────────────────────────────────────────
@@ -341,14 +351,10 @@ var holdingsCSVHeaders = []string{
 	"category", "subcategory", "language", "description",
 }
 
-func parseAndValidate(importType, branchID string, data []byte) ([]*model.ImportRow, []RowError, error) {
-	r := csv.NewReader(bytes.NewReader(data))
-	r.TrimLeadingSpace = true
-	r.FieldsPerRecord = -1 // allow variable field count for better error messages
-
-	records, err := r.ReadAll()
+func parseAndValidate(importType, fileName string, data []byte) ([]*model.ImportRow, []RowError, error) {
+	records, err := readTabularRecords(fileName, data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("CSV parse error: %w", err)
+		return nil, nil, err
 	}
 	if len(records) == 0 {
 		return nil, nil, fmt.Errorf("file has no content")
@@ -368,6 +374,172 @@ func parseAndValidate(importType, branchID string, data []byte) ([]*model.Import
 	default:
 		return nil, nil, fmt.Errorf("unsupported import type: %s", importType)
 	}
+}
+
+func readTabularRecords(fileName string, data []byte) ([][]string, error) {
+	switch strings.ToLower(filepath.Ext(fileName)) {
+	case ".xlsx":
+		return readXLSXRecords(data)
+	default:
+		if !utf8.Valid(data) {
+			return nil, fmt.Errorf("file must be valid UTF-8; re-save as UTF-8 CSV from Excel")
+		}
+		return readCSVRecords(data)
+	}
+}
+
+func readCSVRecords(data []byte) ([][]string, error) {
+	r := csv.NewReader(bytes.NewReader(data))
+	r.TrimLeadingSpace = true
+	r.FieldsPerRecord = -1
+	records, err := r.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("CSV parse error: %w", err)
+	}
+	return records, nil
+}
+
+func readXLSXRecords(data []byte) ([][]string, error) {
+	f, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("XLSX parse error: %w", err)
+	}
+	defer f.Close()
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return nil, fmt.Errorf("XLSX workbook has no worksheets")
+	}
+	return f.GetRows(sheets[0])
+}
+
+func encodeTabular(records [][]string, baseName, format string) ([]byte, string, string, error) {
+	switch strings.ToLower(format) {
+	case "", "csv":
+		var buf bytes.Buffer
+		w := csv.NewWriter(&buf)
+		for _, row := range records {
+			if err := w.Write(row); err != nil {
+				return nil, "", "", err
+			}
+		}
+		w.Flush()
+		if err := w.Error(); err != nil {
+			return nil, "", "", err
+		}
+		return buf.Bytes(), baseName + ".csv", "text/csv; charset=utf-8", nil
+	case "xlsx":
+		f := excelize.NewFile()
+		sheet := f.GetSheetName(0)
+		for i, row := range records {
+			cell, err := excelize.CoordinatesToCellName(1, i+1)
+			if err != nil {
+				return nil, "", "", err
+			}
+			values := make([]any, len(row))
+			for j, v := range row {
+				values[j] = v
+			}
+			if err := f.SetSheetRow(sheet, cell, &values); err != nil {
+				return nil, "", "", err
+			}
+		}
+		buf, err := f.WriteToBuffer()
+		if err != nil {
+			return nil, "", "", err
+		}
+		return buf.Bytes(), baseName + ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", nil
+	default:
+		return nil, "", "", &apperr.Validation{Field: "format", Message: "format must be csv or xlsx"}
+	}
+}
+
+func populateCompletenessFromRows(job *model.ImportJob, rows []*model.ImportRow) {
+	if job == nil {
+		return
+	}
+	total := len(rows)
+	job.ValidRowCount = 0
+	job.InvalidRowCount = 0
+	job.CompletenessThresholdPercent = importCompletenessThresholdPercent
+	if total == 0 {
+		job.CompletenessPercent = 0
+		job.MeetsCompletenessThreshold = false
+		return
+	}
+	for _, row := range rows {
+		switch row.Status {
+		case "valid", "committed":
+			job.ValidRowCount++
+		case "invalid", "rolled_back":
+			job.InvalidRowCount++
+		}
+	}
+	job.CompletenessPercent = float64(job.ValidRowCount) * 100 / float64(total)
+	job.MeetsCompletenessThreshold = job.CompletenessPercent >= importCompletenessThresholdPercent
+}
+
+func populateCompletenessFromJob(job *model.ImportJob) {
+	if job == nil {
+		return
+	}
+	total := 0
+	if job.RowCount != nil {
+		total = *job.RowCount
+	}
+	job.CompletenessThresholdPercent = importCompletenessThresholdPercent
+	if total == 0 {
+		job.ValidRowCount = 0
+		job.InvalidRowCount = 0
+		job.CompletenessPercent = 0
+		job.MeetsCompletenessThreshold = false
+		return
+	}
+	job.InvalidRowCount = uniqueErrorRows(job.ErrorSummary)
+	if total > job.InvalidRowCount {
+		job.ValidRowCount = total - job.InvalidRowCount
+	} else {
+		job.ValidRowCount = 0
+	}
+	job.CompletenessPercent = float64(job.ValidRowCount) * 100 / float64(total)
+	job.MeetsCompletenessThreshold = job.CompletenessPercent >= importCompletenessThresholdPercent
+}
+
+func uniqueErrorRows(summary any) int {
+	rows := map[int]struct{}{}
+	switch errs := summary.(type) {
+	case []RowError:
+		for _, err := range errs {
+			rows[err.Row] = struct{}{}
+		}
+	case []any:
+		for _, entry := range errs {
+			if m, ok := entry.(map[string]any); ok {
+				rows[int(toFloat64(m["row"]))] = struct{}{}
+			}
+		}
+	}
+	return len(rows)
+}
+
+func (s *Service) loadAllRows(ctx context.Context, jobID string) ([]*model.ImportRow, error) {
+	const perPage = 200
+	page := 1
+	var allRows []*model.ImportRow
+	for {
+		result, err := s.repo.ListRows(ctx, jobID, model.Pagination{Page: page, PerPage: perPage})
+		if err != nil {
+			return nil, err
+		}
+		allRows = append(allRows, result.Items...)
+		if page >= result.TotalPages || len(result.Items) == 0 {
+			break
+		}
+		page++
+	}
+	if allRows == nil {
+		allRows = []*model.ImportRow{}
+	}
+	return allRows, nil
 }
 
 // headerIndex returns a map of header name → column index.

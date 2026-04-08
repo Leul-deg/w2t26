@@ -27,7 +27,6 @@ services:
     environment:
       DATABASE_URL: postgresql://lms_user:changeme@postgres:5432/lms?sslmode=disable
       DATABASE_TEST_URL: postgresql://lms_user:changeme@postgres:5432/lms_test?sslmode=disable
-      SESSION_SECRET: local-dev-session-secret-please-change-123456
       CRYPTO_KEY_FILE: /tmp/lms-dev.key
       MIGRATIONS_PATH: /workspace/migrations
       SERVER_HOST: 0.0.0.0

@@ -15,7 +15,7 @@ psql -U postgres -c "CREATE DATABASE lms OWNER lms_user;"
 psql -U postgres -c "CREATE DATABASE lms_test OWNER lms_user;"
 
 # 2 — Backend config
-cd backend && cp .env.example .env   # edit DATABASE_URL, SESSION_SECRET, CRYPTO_KEY_FILE
+cd backend && cp .env.example .env   # edit DATABASE_URL and CRYPTO_KEY_FILE
 
 # 3 — Key file
 mkdir -p /etc/lms && openssl rand -out /etc/lms/lms.key 32 && chmod 600 /etc/lms/lms.key
@@ -35,7 +35,7 @@ cd frontend && npm install && npm run dev
 
 | Requirement | Minimum version |
 |---|---|
-| Go | 1.22 |
+| Go | 1.24 |
 | Node.js | 18 |
 | npm | 9 |
 | PostgreSQL | 14 |
@@ -81,17 +81,10 @@ Edit `backend/.env`:
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `DATABASE_URL` | Yes | — | Full PostgreSQL DSN |
-| `SESSION_SECRET` | Yes | — | Random string, ≥ 32 characters |
 | `CRYPTO_KEY_FILE` | Yes | — | Path to the 32-byte key file |
 | `SERVER_PORT` | No | `8080` | HTTP listen port |
 | `SESSION_INACTIVITY_SECONDS` | No | `1800` | 30-minute default |
 | `MIGRATIONS_PATH` | No | `../../migrations` | Relative or absolute path |
-
-Generate a session secret:
-
-```bash
-openssl rand -hex 32
-```
 
 ### 4. Backend dependencies
 
@@ -115,7 +108,7 @@ npm install
 Run from the `backend/` directory:
 
 ```bash
-# Apply all 16 migrations (schema + seed data)
+# Apply all 17 migrations (schema + seed data)
 go run ./cmd/migrate up
 
 # Check current version
@@ -134,6 +127,10 @@ Migration 014 (`014_seed.up.sql`) seeds:
 Migration 015 (`015_reports_enablement.up.sql`) adds:
 - `reports:admin` permission (grants administrator the ability to trigger on-demand recalculation)
 - Six report definitions with dispatch keys and metric aliases (replaces the two raw-SQL placeholders from 014)
+
+Migration 017 (`017_feedback_appeals_submit.up.sql`) adds:
+- `feedback:submit` and `appeals:submit` permissions
+- Role mappings so staff submissions are permission-gated at the API layer
 
 ---
 
@@ -208,8 +205,8 @@ INSERT INTO lms.user_branch_assignments (user_id, branch_id)
 ## Role Descriptions
 
 - `administrator`: all permissions across all domains.
-- `operations_staff`: `readers:read`, `readers:write`, `readers:reveal_sensitive`, `holdings:read`, `holdings:write`, `copies:read`, `copies:write`, `circulation:read`, `circulation:write`, `stocktake:read`, `stocktake:write`, `programs:read`, `programs:write`, `enrollments:read`, `enrollments:write`, `feedback:read`, `appeals:read`, `content:read`, `imports:create`, `imports:preview`, `imports:commit`, `exports:create`, `reports:read`, `reports:export`.
-- `content_moderator`: `content:read`, `content:submit`, `content:moderate`, `content:publish`, `feedback:read`, `feedback:moderate`, `appeals:read`, `appeals:decide`, `readers:read`, `reports:read`.
+- `operations_staff`: `readers:read`, `readers:write`, `readers:reveal_sensitive`, `holdings:read`, `holdings:write`, `copies:read`, `copies:write`, `circulation:read`, `circulation:write`, `stocktake:read`, `stocktake:write`, `programs:read`, `programs:write`, `enrollments:read`, `enrollments:write`, `feedback:read`, `feedback:submit`, `appeals:read`, `appeals:submit`, `content:read`, `imports:create`, `imports:preview`, `imports:commit`, `exports:create`, `reports:read`, `reports:export`.
+- `content_moderator`: `content:read`, `content:submit`, `content:moderate`, `content:publish`, `feedback:read`, `feedback:submit`, `feedback:moderate`, `appeals:read`, `appeals:submit`, `appeals:decide`, `readers:read`, `reports:read`.
 
 Full permission mappings are defined in `migrations/014_seed.up.sql` and `migrations/015_reports_enablement.up.sql`.
 
@@ -316,9 +313,9 @@ npx tsc --noEmit
 | Reader CRUD with masked/reveal pattern | Step-up auth required for reveal |
 | Holdings and copy-level inventory | Full service + handler |
 | Stocktake sessions | Full service + handler |
-| Bulk import with validation, preview, rollback | Service tests cover rollback |
-| Audited CSV export | Export job created before file generation |
-| Program management | Full service + handler |
+| Bulk import with validation, preview, rollback | CSV and XLSX uploads/templates supported |
+| Audited export generation | CSV/XLSX export job created before file generation |
+| Program management | Full service + handler; UI now supports status, prerequisites, and rules |
 | Enrollment with concurrency safety | SELECT FOR UPDATE; service tests |
 | Governed content publishing workflow | State machine: draft→review→approved/rejected→published→archived |
 | Moderation queue (assign + decide) | Handler + service tests |
@@ -357,7 +354,7 @@ npx tsc --noEmit
 ```
 .
 ├── README.md
-├── migrations/                        # SQL migrations 001–016 (applied in order)
+├── migrations/                        # SQL migrations 001–017 (applied in order)
 │   ├── 001_init.up.sql                # lms schema, uuid extension
 │   ├── 002_auth_sessions.up.sql
 │   ├── 003_branches.up.sql
@@ -373,7 +370,8 @@ npx tsc --noEmit
 │   ├── 013_reports.up.sql             # report_definitions, report_aggregates tables
 │   ├── 014_seed.up.sql                # roles, permissions, admin user, branches
 │   ├── 015_reports_enablement.up.sql  # reports:admin permission + 6 report definitions
-│   └── 016_session_stepup.up.sql      # stepup_at column for server-side step-up enforcement
+│   ├── 016_session_stepup.up.sql      # stepup_at column for server-side step-up enforcement
+│   └── 017_feedback_appeals_submit.up.sql # feedback:submit and appeals:submit permissions
 │
 ├── backend/
 │   ├── cmd/
@@ -495,8 +493,7 @@ Report definitions are seeded via migration 013 and are queryable at `GET /api/v
 - `psql -U lms_user -d lms -c '\conninfo'` — confirm credentials
 
 **Backend fails: "configuration errors"**
-- All three required env vars (`DATABASE_URL`, `SESSION_SECRET`, `CRYPTO_KEY_FILE`) must be set.
-- `SESSION_SECRET` must be ≥ 32 characters.
+- Both required env vars (`DATABASE_URL`, `CRYPTO_KEY_FILE`) must be set.
 - `CRYPTO_KEY_FILE` must be a readable path. The file does not need to contain a valid key for basic operation (auth + reader CRUD without encryption).
 
 **Frontend: "Could not reach the server"**

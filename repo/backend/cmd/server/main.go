@@ -296,7 +296,7 @@ func registerRoutes(
 	api.GET("/ready", health.ReadyHandler(pool))
 
 	// ── Auth routes ──────────────────────────────────────────────────────────
-	authHandler := users.NewHandlerWithRepo(authService, userRepo)
+	authHandler := users.NewHandlerWithRepo(authService, userRepo, auditLogger)
 	authHandler.RegisterRoutes(api, requireAuth)
 
 	branchScopeMW := appmw.BranchScope(userRepo)

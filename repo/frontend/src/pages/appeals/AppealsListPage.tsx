@@ -1,5 +1,5 @@
 // AppealsListPage — list appeals with status/type/reader filters.
-// Requires appeals:read permission. Any authenticated user can submit.
+// Submission and review actions are permission-gated independently.
 
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -35,6 +35,7 @@ export default function AppealsListPage() {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const canRead = hasPermission('appeals:read');
+  const canSubmit = hasPermission('appeals:submit');
 
   const [result, setResult] = useState<PageResult<Appeal> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,11 +108,13 @@ export default function AppealsListPage() {
     return (
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '1.5rem' }}>
         <p style={{ color: '#dc2626' }}>You do not have permission to view appeals.</p>
-        <button onClick={() => setShowSubmit(true)}
-          style={{ padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer', marginTop: '0.75rem' }}>
-          Submit an appeal
-        </button>
-        {showSubmit && renderSubmitForm()}
+        {canSubmit && (
+          <button onClick={() => setShowSubmit(true)}
+            style={{ padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer', marginTop: '0.75rem' }}>
+            Submit an appeal
+          </button>
+        )}
+        {showSubmit && canSubmit && renderSubmitForm()}
       </div>
     );
   }
@@ -168,13 +171,15 @@ export default function AppealsListPage() {
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Appeals</h1>
-        <button onClick={() => setShowSubmit(!showSubmit)}
-          style={{ padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
-          + Submit appeal
-        </button>
+        {canSubmit && (
+          <button onClick={() => setShowSubmit(!showSubmit)}
+            style={{ padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
+            + Submit appeal
+          </button>
+        )}
       </div>
 
-      {showSubmit && renderSubmitForm()}
+      {showSubmit && canSubmit && renderSubmitForm()}
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>

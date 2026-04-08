@@ -30,6 +30,11 @@ export interface ImportJob {
   row_count?: number;
   error_count: number;
   error_summary?: RowError[];
+  valid_row_count: number;
+  invalid_row_count: number;
+  completeness_percent: number;
+  completeness_threshold_percent: number;
+  meets_completeness_threshold: boolean;
   uploaded_by: string;
   uploaded_at: string;
   committed_at?: string;
@@ -103,12 +108,12 @@ function rollback(jobId: string): Promise<ImportJob> {
   return apiClient.post<ImportJob>(`/imports/${jobId}/rollback`);
 }
 
-function errorsCsvUrl(jobId: string): string {
-  return `/api/v1/imports/${jobId}/errors.csv`;
+function errorsFileUrl(jobId: string, format: 'csv' | 'xlsx' = 'csv'): string {
+  return `/api/v1/imports/${jobId}/errors.csv?format=${format}`;
 }
 
-function templateCsvUrl(importType: ImportType): string {
-  return `/api/v1/imports/template/${importType}`;
+function templateFileUrl(importType: ImportType, format: 'csv' | 'xlsx' = 'csv'): string {
+  return `/api/v1/imports/template/${importType}?format=${format}`;
 }
 
 export const importsApi = {
@@ -117,6 +122,6 @@ export const importsApi = {
   getPreview,
   commit,
   rollback,
-  errorsCsvUrl,
-  templateCsvUrl,
+  errorsFileUrl,
+  templateFileUrl,
 };

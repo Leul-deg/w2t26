@@ -39,7 +39,7 @@ func (h *Handler) RegisterRoutes(api *echo.Group, middlewares ...echo.Middleware
 // ── Upload ────────────────────────────────────────────────────────────────────
 
 // Upload handles multipart file upload.
-// Form fields: import_type (readers|holdings), file (CSV).
+// Form fields: import_type (readers|holdings), file (CSV or XLSX).
 // On success returns 202 with the ImportJob (status: preview_ready or failed).
 func (h *Handler) Upload(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -122,7 +122,7 @@ func (h *Handler) ListJobs(c echo.Context) error {
 // ── Preview ───────────────────────────────────────────────────────────────────
 
 type previewResponse struct {
-	Job  *model.ImportJob              `json:"job"`
+	Job  *model.ImportJob                   `json:"job"`
 	Rows model.PageResult[*model.ImportRow] `json:"rows"`
 }
 
@@ -164,9 +164,9 @@ func (h *Handler) Commit(c echo.Context) error {
 		// inspect error details without a second round-trip.
 		if job != nil {
 			return c.JSON(http.StatusUnprocessableEntity, map[string]any{
-				"error":   "commit_failed",
-				"detail":  err.Error(),
-				"job":     job,
+				"error":  "commit_failed",
+				"detail": err.Error(),
+				"job":    job,
 			})
 		}
 		return err
@@ -207,12 +207,13 @@ func (h *Handler) DownloadErrors(c echo.Context) error {
 	}
 	branchID, _ := ctxutil.GetBranchID(ctx)
 
-	data, fileName, err := h.service.ErrorCSV(ctx, c.Param("id"), branchID)
+	format := c.QueryParam("format")
+	data, fileName, contentType, err := h.service.ErrorFile(ctx, c.Param("id"), branchID, format)
 	if err != nil {
 		return err
 	}
 	c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="`+fileName+`"`)
-	return c.Blob(http.StatusOK, "text/csv; charset=utf-8", data)
+	return c.Blob(http.StatusOK, contentType, data)
 }
 
 // ── Template ──────────────────────────────────────────────────────────────────
@@ -228,12 +229,13 @@ func (h *Handler) DownloadTemplate(c echo.Context) error {
 	}
 	_ = ctx
 
-	data, fileName, err := TemplateCSV(c.Param("type"))
+	format := c.QueryParam("format")
+	data, fileName, contentType, err := TemplateFile(c.Param("type"), format)
 	if err != nil {
 		return err
 	}
 	c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="`+fileName+`"`)
-	return c.Blob(http.StatusOK, "text/csv; charset=utf-8", data)
+	return c.Blob(http.StatusOK, contentType, data)
 }
 
 // ── Pagination helper ─────────────────────────────────────────────────────────

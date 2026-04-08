@@ -17,7 +17,6 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
 		"DATABASE_URL",
-		"SESSION_SECRET",
 		"CRYPTO_KEY_FILE",
 		"SERVER_HOST",
 		"SERVER_PORT",
@@ -37,7 +36,6 @@ func TestLoad_MissingRequiredFields_ReturnsError(t *testing.T) {
 
 	require.Error(t, err, "Load must fail when required fields are missing")
 	assert.Contains(t, err.Error(), "DATABASE_URL")
-	assert.Contains(t, err.Error(), "SESSION_SECRET")
 	assert.Contains(t, err.Error(), "CRYPTO_KEY_FILE")
 }
 
@@ -45,7 +43,6 @@ func TestLoad_ValidMinimalConfig_Succeeds(t *testing.T) {
 	clearEnv(t)
 
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb?sslmode=disable")
-	t.Setenv("SESSION_SECRET", "a-very-long-secret-key-that-is-at-least-32-chars")
 	t.Setenv("CRYPTO_KEY_FILE", "/tmp/test.key")
 
 	cfg, err := config.Load()
@@ -61,7 +58,6 @@ func TestLoad_CustomPort_Parsed(t *testing.T) {
 	clearEnv(t)
 
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb?sslmode=disable")
-	t.Setenv("SESSION_SECRET", "a-very-long-secret-key-that-is-at-least-32-chars")
 	t.Setenv("CRYPTO_KEY_FILE", "/tmp/test.key")
 	t.Setenv("SERVER_PORT", "9090")
 
@@ -75,7 +71,6 @@ func TestLoad_InvalidPort_ReturnsError(t *testing.T) {
 	clearEnv(t)
 
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb?sslmode=disable")
-	t.Setenv("SESSION_SECRET", "a-very-long-secret-key-that-is-at-least-32-chars")
 	t.Setenv("CRYPTO_KEY_FILE", "/tmp/test.key")
 	t.Setenv("SERVER_PORT", "not-a-number")
 
@@ -85,24 +80,10 @@ func TestLoad_InvalidPort_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "SERVER_PORT")
 }
 
-func TestLoad_ShortSessionSecret_ReturnsError(t *testing.T) {
-	clearEnv(t)
-
-	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb?sslmode=disable")
-	t.Setenv("SESSION_SECRET", "tooshort")
-	t.Setenv("CRYPTO_KEY_FILE", "/tmp/test.key")
-
-	_, err := config.Load()
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SESSION_SECRET")
-}
-
 func TestConfig_Addr_Format(t *testing.T) {
 	clearEnv(t)
 
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb?sslmode=disable")
-	t.Setenv("SESSION_SECRET", "a-very-long-secret-key-that-is-at-least-32-chars")
 	t.Setenv("CRYPTO_KEY_FILE", "/tmp/test.key")
 	t.Setenv("SERVER_HOST", "127.0.0.1")
 	t.Setenv("SERVER_PORT", "8888")
@@ -114,15 +95,13 @@ func TestConfig_Addr_Format(t *testing.T) {
 }
 
 // TestLoad_SafeLogFields_OmitsSensitiveValues verifies that SafeLogFields does
-// not expose database credentials, session secrets, or key paths.
+// not expose database credentials or key paths.
 func TestLoad_SafeLogFields_OmitsSensitiveValues(t *testing.T) {
 	clearEnv(t)
 
 	dsn := "postgres://adminuser:topsecret@dbhost:5432/lms?sslmode=require"
-	secret := "this-is-the-session-secret-and-must-not-appear-in-logs"
 
 	t.Setenv("DATABASE_URL", dsn)
-	t.Setenv("SESSION_SECRET", secret)
 	t.Setenv("CRYPTO_KEY_FILE", "/secrets/lms.key")
 
 	cfg, err := config.Load()
@@ -134,8 +113,6 @@ func TestLoad_SafeLogFields_OmitsSensitiveValues(t *testing.T) {
 		serialized := fmt.Sprintf("%v", v)
 		assert.NotContains(t, serialized, "topsecret",
 			"SafeLogFields field %q must not contain the DB password", k)
-		assert.NotContains(t, serialized, secret,
-			"SafeLogFields field %q must not contain the session secret", k)
 	}
 
 	// Non-sensitive fields must be present.

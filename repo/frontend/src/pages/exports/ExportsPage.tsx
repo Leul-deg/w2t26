@@ -1,6 +1,6 @@
 // ExportsPage — trigger exports and view the audit log of past exports.
 //
-// Export actions are gated by exports:write permission.
+// Export actions are gated by exports:create permission.
 // Every export generates a CSV download and an audit record.
 // The page shows the audit history so reviewers can trace every export.
 
@@ -11,10 +11,10 @@ import type { PageResult } from '../../api/readers';
 
 export default function ExportsPage() {
   const { hasPermission } = useAuth();
-  const canExport = hasPermission('exports:write');
-  const canRead = hasPermission('exports:read') || canExport;
+  const canExport = hasPermission('exports:create');
+  const canRead = canExport;
 
-  const [exporting, setExporting] = useState<string | null>(null); // current export type
+  const [exporting, setExporting] = useState<string | null>(null); // current export type/format
   const [exportError, setExportError] = useState<string | null>(null);
 
   const [history, setHistory] = useState<PageResult<ExportJob> | null>(null);
@@ -41,11 +41,11 @@ export default function ExportsPage() {
 
   // ── Trigger export ────────────────────────────────────────────────────────────
 
-  const handleExport = useCallback(async (exportType: 'readers' | 'holdings') => {
-    setExporting(exportType);
+  const handleExport = useCallback(async (exportType: 'readers' | 'holdings', format: 'csv' | 'xlsx') => {
+    setExporting(`${exportType}:${format}`);
     setExportError(null);
     try {
-      const { blob, fileName } = await exportsApi.triggerExport(exportType);
+      const { blob, fileName } = await exportsApi.triggerExport(exportType, format);
       // Trigger browser download.
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -79,15 +79,27 @@ export default function ExportsPage() {
           </p>
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             <ExportButton
-              label="Export Readers"
-              onClick={() => handleExport('readers')}
-              loading={exporting === 'readers'}
+              label="Export Readers (CSV)"
+              onClick={() => handleExport('readers', 'csv')}
+              loading={exporting === 'readers:csv'}
               disabled={!!exporting}
             />
             <ExportButton
-              label="Export Holdings"
-              onClick={() => handleExport('holdings')}
-              loading={exporting === 'holdings'}
+              label="Export Readers (Excel)"
+              onClick={() => handleExport('readers', 'xlsx')}
+              loading={exporting === 'readers:xlsx'}
+              disabled={!!exporting}
+            />
+            <ExportButton
+              label="Export Holdings (CSV)"
+              onClick={() => handleExport('holdings', 'csv')}
+              loading={exporting === 'holdings:csv'}
+              disabled={!!exporting}
+            />
+            <ExportButton
+              label="Export Holdings (Excel)"
+              onClick={() => handleExport('holdings', 'xlsx')}
+              loading={exporting === 'holdings:xlsx'}
               disabled={!!exporting}
             />
           </div>

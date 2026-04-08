@@ -79,7 +79,9 @@ func (h *Handler) Submit(c echo.Context) error {
 	if !ok {
 		return &apperr.Unauthorized{}
 	}
-	// Any authenticated user may submit an appeal on behalf of a reader.
+	if !user.HasPermission("appeals:submit") {
+		return &apperr.Forbidden{Action: "submit", Resource: "appeal"}
+	}
 	branchID, _ := ctxutil.GetBranchID(ctx)
 
 	var req submitAppealReq
@@ -119,8 +121,8 @@ func (h *Handler) Get(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"appeal":        appeal,
-		"arbitration":   arb,
+		"appeal":      appeal,
+		"arbitration": arb,
 	})
 }
 

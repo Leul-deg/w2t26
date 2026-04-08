@@ -47,7 +47,9 @@ function StatusBadge({ status }: { status: string }) {
 export default function ImportPage() {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
-  const canWrite = hasPermission('imports:write');
+  const canCreate = hasPermission('imports:create');
+  const canPreview = hasPermission('imports:preview') || canCreate;
+  const canCommit = hasPermission('imports:commit');
 
   const [importType, setImportType] = useState<ImportType>('readers');
   const [file, setFile] = useState<File | null>(null);
@@ -173,11 +175,11 @@ export default function ImportPage() {
             </div>
 
             <div>
-              <label style={{ fontSize: '0.8125rem', fontWeight: 500, display: 'block', marginBottom: 4 }}>CSV file</label>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 500, display: 'block', marginBottom: 4 }}>CSV or Excel file</label>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 disabled={uploading || !!job}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 style={{ fontSize: '0.875rem' }}
@@ -188,23 +190,30 @@ export default function ImportPage() {
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
             <button
               onClick={handleUpload}
-              disabled={!file || uploading || !!job || !canWrite}
+                disabled={!file || uploading || !!job || !canCreate}
               style={{
                 padding: '0.5rem 1rem', background: '#4f46e5', color: '#fff',
                 border: 'none', borderRadius: 6, fontSize: '0.875rem',
-                cursor: (!file || uploading || !!job || !canWrite) ? 'not-allowed' : 'pointer',
-                opacity: (!file || uploading || !!job || !canWrite) ? 0.6 : 1,
+                  cursor: (!file || uploading || !!job || !canCreate) ? 'not-allowed' : 'pointer',
+                  opacity: (!file || uploading || !!job || !canCreate) ? 0.6 : 1,
               }}
             >
               {uploading ? 'Uploading…' : 'Upload & Validate'}
             </button>
 
             <a
-              href={importsApi.templateCsvUrl(importType)}
+              href={importsApi.templateFileUrl(importType, 'csv')}
               download
               style={{ fontSize: '0.8125rem', color: '#4f46e5', textDecoration: 'underline' }}
             >
-              Download {importType} CSV template
+              Download CSV template
+            </a>
+            <a
+              href={importsApi.templateFileUrl(importType, 'xlsx')}
+              download
+              style={{ fontSize: '0.8125rem', color: '#4f46e5', textDecoration: 'underline' }}
+            >
+              Download Excel template
             </a>
           </div>
 
@@ -222,15 +231,20 @@ export default function ImportPage() {
             <StatusBadge status={job.status} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginBottom: '1rem' }}>
             <StatCard label="File" value={job.file_name} />
             <StatCard label="Rows" value={job.row_count != null ? String(job.row_count) : '—'} />
+            <StatCard label="Valid rows" value={String(job.valid_row_count)} valueColor="#059669" />
+            <StatCard label="Invalid rows" value={String(job.invalid_row_count)} valueColor={job.invalid_row_count > 0 ? '#dc2626' : '#059669'} />
             <StatCard
-              label="Errors"
-              value={String(job.error_count)}
-              valueColor={job.error_count > 0 ? '#dc2626' : '#059669'}
+              label="Completeness"
+              value={`${job.completeness_percent.toFixed(1)}%`}
+              valueColor={job.meets_completeness_threshold ? '#059669' : '#dc2626'}
             />
           </div>
+          <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: job.meets_completeness_threshold ? '#065f46' : '#991b1b' }}>
+            Completeness threshold: {job.completeness_threshold_percent.toFixed(0)}%. {job.meets_completeness_threshold ? 'Threshold met.' : 'Threshold not met.'}
+          </p>
 
           {job.error_count > 0 && (
             <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
@@ -241,11 +255,18 @@ export default function ImportPage() {
                 The import cannot be committed until all rows are valid.
               </p>
               <a
-                href={importsApi.errorsCsvUrl(job.id)}
+                href={importsApi.errorsFileUrl(job.id, 'csv')}
                 download
                 style={{ fontSize: '0.8125rem', color: '#b91c1c', fontWeight: 500, textDecoration: 'underline' }}
               >
                 Download error report (CSV)
+              </a>
+              <a
+                href={importsApi.errorsFileUrl(job.id, 'xlsx')}
+                download
+                style={{ marginLeft: '0.75rem', fontSize: '0.8125rem', color: '#b91c1c', fontWeight: 500, textDecoration: 'underline' }}
+              >
+                Download error report (Excel)
               </a>
 
               {/* Inline error table (first 10 errors) */}
@@ -280,7 +301,7 @@ export default function ImportPage() {
           )}
 
           {/* Commit / rollback actions */}
-          {canWrite && !isFinal && (
+          {canCommit && canPreview && !isFinal && (
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
               <button
                 onClick={handleCommit}

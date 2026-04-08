@@ -37,8 +37,6 @@ type DBConfig struct {
 
 // SessionConfig holds session management settings.
 type SessionConfig struct {
-	// Secret is used to sign session tokens. Treat as sensitive.
-	Secret string
 	// InactivityTimeoutSeconds is the number of seconds of inactivity after
 	// which a session is considered expired. Default: 1800 (30 minutes).
 	InactivityTimeoutSeconds int
@@ -83,12 +81,6 @@ func Load() (*Config, error) {
 	}
 
 	// --- Session ---
-	cfg.Session.Secret = os.Getenv("SESSION_SECRET")
-	if cfg.Session.Secret == "" {
-		errs = append(errs, "SESSION_SECRET: required, use a random string of at least 32 characters")
-	} else if len(cfg.Session.Secret) < 32 {
-		errs = append(errs, "SESSION_SECRET: must be at least 32 characters")
-	}
 	inactivity, err := envInt("SESSION_INACTIVITY_SECONDS", 1800)
 	if err != nil {
 		errs = append(errs, "SESSION_INACTIVITY_SECONDS: "+err.Error())
@@ -123,11 +115,11 @@ func (c *Config) Addr() string {
 // startup logs. Sensitive values (DSN, secrets, key paths) are omitted.
 func (c *Config) SafeLogFields() map[string]any {
 	return map[string]any{
-		"server.host":                      c.Server.Host,
-		"server.port":                      c.Server.Port,
-		"session.inactivity_timeout_secs":  c.Session.InactivityTimeoutSeconds,
-		"migrate.path":                     c.Migrate.Path,
-		"log_level":                        c.LogLevel,
+		"server.host":                     c.Server.Host,
+		"server.port":                     c.Server.Port,
+		"session.inactivity_timeout_secs": c.Session.InactivityTimeoutSeconds,
+		"migrate.path":                    c.Migrate.Path,
+		"log_level":                       c.LogLevel,
 	}
 }
 
