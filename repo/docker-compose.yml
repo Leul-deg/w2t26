@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: changeme
       POSTGRES_DB: lms
     ports:
-      - "55432:5432"
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,7 +34,7 @@ services:
       SESSION_INACTIVITY_SECONDS: 1800
       LOG_LEVEL: info
     ports:
-      - "58080:8080"
+      - "8080"
     volumes:
       - .:/workspace
       - ./backend/.env.example:/workspace/backend/.env.example:ro
@@ -58,7 +58,7 @@ services:
     environment:
       VITE_API_BASE_URL: http://localhost:58080
     ports:
-      - "53000:3000"
+      - "3000"
     volumes:
       - .:/workspace
     command: >

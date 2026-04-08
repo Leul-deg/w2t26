@@ -7,7 +7,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_id)
-SELECT role_id, permission_id
+SELECT grants.role_id::uuid, p.id
 FROM (
   VALUES
     ('11111111-0000-0000-0000-000000000001', 'feedback:submit'),
