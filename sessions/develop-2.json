@@ -4292,9 +4292,7 @@
       "session_id": "8693c34d-971c-47ea-8e8d-af9d07b901b7",
       "version": "2.1.91",
       "git_branch": "HEAD",
-      "cwd": "/home/leul/Documents/w2t26/repo",
-      "originator": "claude_cli",
-      "source": "claude_jsonl"
+      "cwd": "/home/leul/Documents/w2t26/repo"
     },
     "token_counts": [
       {
@@ -8383,27 +8381,15 @@
         "data": null
       }
     ],
-    "session_id": "8693c34d-971c-47ea-8e8d-af9d07b901b7",
-    "cwd": "/home/leul/Documents/w2t26/repo",
-    "git_branch": "HEAD",
-    "originator": "claude_cli",
-    "source": "claude_jsonl",
-    "approval_policy": "default",
-    "collaboration_mode": {
-      "mode": "single"
-    },
-    "turn_contexts": [
-      {
-        "cwd": "/home/leul/Documents/w2t26/repo",
-        "model": "Claude Sonnet",
-        "originator": "claude_cli",
-        "source": "claude_jsonl",
-        "approval_policy": "default",
-        "collaboration_mode": {
-          "mode": "single"
-        },
-        "summary": "develop-2"
-      }
-    ]
+    "subagents": [],
+    "merge_warnings": [],
+    "merge_stats": {
+      "main_messages": 251,
+      "subagent_messages": 0,
+      "merged_messages": 251,
+      "subagent_count": 0,
+      "has_subagents": false,
+      "source_root": "/tmp/claude_jsonl_eqgwh4x8"
+    }
   }
 }

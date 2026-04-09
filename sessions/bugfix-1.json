@@ -4472,18 +4472,6 @@
       "_metadata": {
         "timestamp": "2026-04-03T13:25:11.348Z"
       }
-    },
-    {
-      "role": "assistant",
-      "content": [
-        {
-          "type": "text",
-          "text": "You've hit your limit · resets 5pm (Africa/Addis_Ababa)"
-        }
-      ],
-      "_metadata": {
-        "timestamp": "2026-04-03T13:25:13.119Z"
-      }
     }
   ],
   "meta": {
@@ -4491,9 +4479,7 @@
       "session_id": "50a49610-8284-470c-8980-03a0bef2c1fc",
       "version": "2.1.91",
       "git_branch": "HEAD",
-      "cwd": "/home/leul/Documents/w2t26/repo",
-      "originator": "claude_cli",
-      "source": "claude_jsonl"
+      "cwd": "/home/leul/Documents/w2t26/repo"
     },
     "token_counts": [
       {
@@ -8551,30 +8537,6 @@
           "plan_type": null
         },
         "_timestamp": "2026-04-03T13:25:11.263Z"
-      },
-      {
-        "type": "token_count",
-        "info": {
-          "total_token_usage": {
-            "input_tokens": 0,
-            "cached_input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0
-          },
-          "last_token_usage": {
-            "input_tokens": 0,
-            "cached_input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0
-          }
-        },
-        "rate_limits": {
-          "primary": null,
-          "secondary": null,
-          "credits": null,
-          "plan_type": null
-        },
-        "_timestamp": "2026-04-03T13:25:13.119Z"
       }
     ],
     "skipped_events_count": 28,
@@ -8630,27 +8592,15 @@
         "data": null
       }
     ],
-    "session_id": "50a49610-8284-470c-8980-03a0bef2c1fc",
-    "cwd": "/home/leul/Documents/w2t26/repo",
-    "git_branch": "HEAD",
-    "originator": "claude_cli",
-    "source": "claude_jsonl",
-    "approval_policy": "default",
-    "collaboration_mode": {
-      "mode": "single"
-    },
-    "turn_contexts": [
-      {
-        "cwd": "/home/leul/Documents/w2t26/repo",
-        "model": "Claude Sonnet",
-        "originator": "claude_cli",
-        "source": "claude_jsonl",
-        "approval_policy": "default",
-        "collaboration_mode": {
-          "mode": "single"
-        },
-        "summary": "develop-3"
-      }
-    ]
+    "subagents": [],
+    "merge_warnings": [],
+    "merge_stats": {
+      "main_messages": 253,
+      "subagent_messages": 0,
+      "merged_messages": 253,
+      "subagent_count": 0,
+      "has_subagents": false,
+      "source_root": "/tmp/claude_jsonl_v3ak6ug3"
+    }
   }
 }
