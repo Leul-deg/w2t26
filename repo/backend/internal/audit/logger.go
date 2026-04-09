@@ -157,11 +157,13 @@ func (l *Logger) LogStocktakeEvent(ctx context.Context, actorID, actorUsername, 
 }
 
 // LogEnrollmentChanged records a reader enrollment status change (enroll, drop, etc.).
-func (l *Logger) LogEnrollmentChanged(ctx context.Context, actorID, actorUsername, enrollmentID, programID, prevStatus, newStatus, reason string) {
+func (l *Logger) LogEnrollmentChanged(ctx context.Context, actorID, actorUsername, enrollmentID, programID, branchID, workstationID, prevStatus, newStatus, reason string) {
 	e := &model.AuditEvent{
 		EventType:     model.AuditEnrollmentChanged,
 		ActorUserID:   strPtr(actorID),
 		ActorUsername: strPtr(actorUsername),
+		WorkstationID: strPtr(workstationID),
+		BranchID:      strPtr(branchID),
 		ResourceType:  strPtr("enrollment"),
 		ResourceID:    strPtr(enrollmentID),
 		BeforeValue:   map[string]string{"status": prevStatus},
@@ -187,11 +189,12 @@ func (l *Logger) LogImportEvent(ctx context.Context, actorID, actorUsername, eve
 
 // LogExportCreated records a successful export operation.
 // rowCount is the number of rows included in the export file.
-func (l *Logger) LogExportCreated(ctx context.Context, actorID, actorUsername, jobID, exportType, branchID string, rowCount int) {
+func (l *Logger) LogExportCreated(ctx context.Context, actorID, actorUsername, jobID, exportType, branchID, workstationID string, rowCount int) {
 	e := &model.AuditEvent{
 		EventType:     model.AuditExportCreated,
 		ActorUserID:   strPtr(actorID),
 		ActorUsername: strPtr(actorUsername),
+		WorkstationID: strPtr(workstationID),
 		BranchID:      strPtr(branchID),
 		ResourceType:  strPtr("export_job"),
 		ResourceID:    strPtr(jobID),

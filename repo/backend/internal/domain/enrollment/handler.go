@@ -119,11 +119,12 @@ func (h *Handler) Drop(c echo.Context) error {
 	}
 
 	if err := h.service.Drop(ctx, DropRequest{
-		EnrollmentID: c.Param("id"),
-		ReaderID:     body.ReaderID,
-		BranchID:     branchID,
-		Reason:       body.Reason,
-		ActorUserID:  user.User.ID,
+		EnrollmentID:  c.Param("id"),
+		ReaderID:      body.ReaderID,
+		BranchID:      branchID,
+		Reason:        body.Reason,
+		ActorUserID:   user.User.ID,
+		WorkstationID: ctxutil.GetWorkstationID(c),
 	}); err != nil {
 		return err
 	}

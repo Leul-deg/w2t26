@@ -5,6 +5,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -142,6 +143,31 @@ func insertTestReaderInBranch(t *testing.T, branchID string) string {
 	return readerID
 }
 
+func insertTestHoldingInBranch(t *testing.T, branchID string) string {
+	t.Helper()
+	pool := testdb.Open(t)
+	defer pool.Close()
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	var holdingID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO lms.holdings (branch_id, title, language)
+		VALUES ($1, $2, 'en')
+		RETURNING id::text`,
+		branchID, "Holding "+suffix,
+	).Scan(&holdingID)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		p := testdb.Open(t)
+		defer p.Close()
+		p.Exec(context.Background(), `DELETE FROM lms.copies WHERE holding_id = $1`, holdingID) //nolint
+		p.Exec(context.Background(), `DELETE FROM lms.holdings WHERE id = $1`, holdingID)       //nolint
+	})
+	return holdingID
+}
+
 // ── Holdings ──────────────────────────────────────────────────────────────────
 
 // TestHoldings_ListRequiresPermission verifies that a user without holdings:read
@@ -215,6 +241,29 @@ func TestHoldings_ContentModeratorCannotList(t *testing.T) {
 	rec := doRequest(t, app.testApp, http.MethodGet, "/api/v1/holdings", nil, cookie)
 	assert.Equal(t, http.StatusForbidden, rec.Code,
 		"content_moderator has no holdings:read — should get 403: body=%s", rec.Body.String())
+}
+
+// TestHoldings_AddCopy_CrossBranch_Returns404 verifies that a user scoped to one
+// branch cannot attach a copy to a holding from another branch by guessing the holding UUID.
+func TestHoldings_AddCopy_CrossBranch_Returns404(t *testing.T) {
+	app := newFullTestApp(t)
+	mainBranchID := "bbbbbbbb-0000-0000-0000-000000000001"
+	eastBranchID := "bbbbbbbb-0000-0000-0000-000000000002"
+	holdingID := insertTestHoldingInBranch(t, mainBranchID)
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "east-addcopy-" + suffix
+	userID := createTestUser(t, app.testApp, username, username+"@test.local", "Password123!", "operations_staff")
+	assignUserToBranch(t, userID, eastBranchID)
+	cookie := loginAs(t, app.testApp, username, "Password123!")
+
+	rec := doRequest(t, app.testApp, http.MethodPost, "/api/v1/holdings/"+holdingID+"/copies", map[string]any{
+		"barcode":     "XCOPY-" + suffix,
+		"status_code": "available",
+		"condition":   "good",
+	}, cookie)
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"cross-branch POST /holdings/:id/copies must return 404: body=%s", rec.Body.String())
 }
 
 // ── Stocktake ─────────────────────────────────────────────────────────────────
@@ -443,6 +492,66 @@ func TestReports_OperationsStaffCanListDefinitions(t *testing.T) {
 	rec := doRequest(t, app.testApp, http.MethodGet, "/api/v1/reports/definitions", nil, cookie)
 	assert.Equal(t, http.StatusOK, rec.Code,
 		"operations_staff should get 200 on GET /reports/definitions: body=%s", rec.Body.String())
+}
+
+// TestReports_RunReport_ReturnsDefinitionAndRows verifies the actual run endpoint
+// returns a concrete JSON payload for an operations staff user in their assigned branch.
+func TestReports_RunReport_ReturnsDefinitionAndRows(t *testing.T) {
+	app := newFullTestApp(t)
+	const branchID = "bbbbbbbb-0000-0000-0000-000000000001"
+	definitionID := lookupReportDefinitionID(t, "reader_activity")
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "ops-run-report-" + suffix
+	userID := createTestUser(t, app.testApp, username, username+"@test.local", "Password123!", "operations_staff")
+	assignUserToBranch(t, userID, branchID)
+	cookie := loginAs(t, app.testApp, username, "Password123!")
+
+	rec := doRequest(t, app.testApp, http.MethodGet,
+		"/api/v1/reports/run?definition_id="+definitionID+"&from=2026-01-01&to=2026-01-31",
+		nil,
+		cookie,
+	)
+	require.Equal(t, http.StatusOK, rec.Code,
+		"operations_staff should run reader_activity report successfully: body=%s", rec.Body.String())
+
+	var resp struct {
+		Definition struct {
+			Name string `json:"name"`
+		} `json:"definition"`
+		Rows     []map[string]any `json:"rows"`
+		RowCount int              `json:"row_count"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "reader_activity", resp.Definition.Name)
+	assert.Len(t, resp.Rows, 3)
+	assert.Equal(t, 3, resp.RowCount)
+}
+
+// TestReports_Export_ReturnsCSVAndAuditHeader verifies the real export endpoint
+// returns a CSV payload plus the export job header for an authorized branch-scoped user.
+func TestReports_Export_ReturnsCSVAndAuditHeader(t *testing.T) {
+	app := newFullTestApp(t)
+	const branchID = "bbbbbbbb-0000-0000-0000-000000000001"
+	definitionID := lookupReportDefinitionID(t, "reader_activity")
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	username := "ops-export-report-" + suffix
+	userID := createTestUser(t, app.testApp, username, username+"@test.local", "Password123!", "operations_staff")
+	assignUserToBranch(t, userID, branchID)
+	cookie := loginAs(t, app.testApp, username, "Password123!")
+
+	rec := doRequest(t, app.testApp, http.MethodGet,
+		"/api/v1/reports/export?definition_id="+definitionID+"&from=2026-01-01&to=2026-01-31",
+		nil,
+		cookie,
+	)
+	require.Equal(t, http.StatusOK, rec.Code,
+		"operations_staff should export reader_activity report successfully: body=%s", rec.Body.String())
+	assert.Contains(t, rec.Header().Get("Content-Type"), "text/csv")
+	assert.Contains(t, rec.Header().Get("Content-Disposition"), "attachment; filename=")
+	assert.NotEmpty(t, rec.Header().Get("X-Export-Job-ID"))
+	assert.Contains(t, rec.Body.String(), "metric,value")
 }
 
 // ── Feedback / appeals submit permissions ─────────────────────────────────────

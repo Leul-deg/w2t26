@@ -114,7 +114,7 @@ func (s *Service) Export(ctx context.Context, req ExportRequest) (*ExportResult,
 	job.RowCount = &rowCount
 	job.FileName = &fileName
 
-	s.auditLogger.LogExportCreated(ctx, req.ActorUserID, "", job.ID, req.ExportType, req.BranchID, rowCount)
+	s.auditLogger.LogExportCreated(ctx, req.ActorUserID, "", job.ID, req.ExportType, req.BranchID, req.WorkstationID, rowCount)
 
 	return &ExportResult{Job: job, Data: data, FileName: fileName, ContentType: contentType}, nil
 }

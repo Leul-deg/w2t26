@@ -201,12 +201,13 @@ func (h *Handler) ExportReport(c echo.Context) error {
 	filters := extractFilters(c, "definition_id", "from", "to", "branch_id")
 
 	result, err := h.service.ExportReport(c.Request().Context(), ExportReportRequest{
-		BranchID:     branchID,
-		DefinitionID: definitionID,
-		From:         from,
-		To:           to,
-		Filters:      filters,
-		ActorUserID:  user.User.ID,
+		BranchID:      branchID,
+		DefinitionID:  definitionID,
+		From:          from,
+		To:            to,
+		Filters:       filters,
+		ActorUserID:   user.User.ID,
+		WorkstationID: ctxutil.GetWorkstationID(c),
 	})
 	if err != nil {
 		return err

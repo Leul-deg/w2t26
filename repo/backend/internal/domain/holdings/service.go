@@ -3,8 +3,8 @@ package holdings
 import (
 	"context"
 
-	auditpkg "lms/internal/audit"
 	"lms/internal/apperr"
+	auditpkg "lms/internal/audit"
 	"lms/internal/domain/copies"
 	"lms/internal/model"
 )
@@ -188,6 +188,11 @@ type UpdateCopyRequest struct {
 func (s *Service) AddCopy(ctx context.Context, holdingID, branchID, actorID string, req AddCopyRequest) (*model.Copy, error) {
 	if req.Barcode == "" {
 		return nil, &apperr.Validation{Field: "barcode", Message: "barcode is required"}
+	}
+	// Authorize through the parent holding first so callers cannot attach a copy to
+	// a holding from another branch by guessing its UUID.
+	if _, err := s.holdingRepo.GetByID(ctx, holdingID, branchID); err != nil {
+		return nil, err
 	}
 	status := req.StatusCode
 	if status == "" {

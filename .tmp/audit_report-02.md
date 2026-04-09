@@ -1,314 +1,200 @@
 # Delivery Acceptance & Project Architecture Audit
 
 ## 1. Verdict
-- Overall conclusion: **Fail**
+- Overall conclusion: **Partial Pass**
 
-## 2. Scope and Static Verification Boundary
+## 2. Scope and Verification Boundary
 - What was reviewed:
-  - Repository docs and config examples
-  - Backend entry points, routes, middleware, services, repos, migrations, and tests
-  - Frontend routes, pages, APIs, and tests
-- What was not reviewed:
-  - Real UI rendering and usability
-  - Actual DB query execution behavior
-  - Scheduler timing at midnight
-  - Performance under load
-  - Multi-operator race behavior in a deployed environment
-- What was intentionally not executed:
-  - Project startup
-  - Tests
-  - Docker
-  - External services
-- Which claims require manual verification:
-  - Runtime startup and report behavior
-  - Browser visual quality
-  - Live concurrency and performance behavior
+  - Backend routes, middleware, services, repositories, migrations, and integration tests
+  - Frontend routes, navigation, reports client, and concrete page wiring
+  - Current `.tmp` fix-check context versus repository state
+- What was executed:
+  - `gofmt` on modified backend files
+  - Compile-only validation for `backend/tests/integration`
+  - Package tests for `internal/domain/holdings`, `internal/domain/enrollment`, `internal/domain/reports`, and `internal/domain/exports`
+- What could not be fully executed:
+  - Live DB-backed integration tests under `backend/tests/integration`
+- Which claims still require manual verification:
+  - Real PostgreSQL-backed execution of the new/updated integration tests
+  - Browser rendering and interaction quality
+  - Scheduler behavior in a real deployed runtime
 
-## 3. Repository / Requirement Mapping Summary
-- Prompt core business goal:
-  - Offline library suite covering circulation, readers/privacy reveal, holdings and stocktake, imports/exports with preview and rollback, programs/enrollment with atomicity, governed content/moderation, feedback/appeals, role/data-scope RBAC, and reporting.
-- Main implementation areas mapped:
-  - Echo route wiring in `backend/cmd/server/main.go`
-  - Auth, session, RBAC, and branch scope middleware
-  - Domain handlers, services, repos, SQL schema, and seed data
-  - React route table, shell navigation, and feature pages
+## 3. Current-state Summary
+- The previously flagged stub/placeholder concerns for circulation, holdings, stocktake, reports, and enrollments are no longer present in the active route table.
+- Reporting seed/migration consistency is materially improved: `migrations/015_reports_enablement.up.sql` adds `reports:admin` and normalizes seeded report template keys to values supported by the dispatcher.
+- Branch isolation is materially improved: unassigned non-admin users are scoped to the nil-branch sentinel UUID instead of degrading to global scope.
+- Object-level authorization is improved further by parent-object authorization on program-rule paths, circulation copy resolution, and now holdings copy creation.
+- Report run/export API coverage is stronger: direct handler-level integration tests now validate JSON and CSV responses rather than stopping at static inspection.
 
 ## 4. Section-by-section Review
 
 ### 1. Hard Gates
 
 #### 1.1 Documentation and static verifiability
-- Conclusion: **Partial Pass**
-- Rationale: Docs were extensive, but materially inconsistent with repository state for migrations, reporting, and known incompleteness.
-- Evidence: `README.md:118`, `README.md:359`, `migrations/015_reports_enablement.up.sql:1`, `README.md:347`, `README.md:446`
-- Manual verification note: Runtime startup/report behavior could not be confirmed without executing migrations and API calls.
+- Conclusion: **Pass**
+- Rationale: The repository is statically reviewable, and the current migrations/routes/tests are internally consistent enough to follow.
 
 #### 1.2 Whether the delivered project materially deviates from the Prompt
-- Conclusion: **Fail**
-- Rationale: Core daily circulation was unimplemented and key workstation flows remained placeholder UI at that stage.
-- Evidence: `backend/cmd/server/main.go:351`, `backend/cmd/server/main.go:359`, `frontend/src/App.tsx:40`, `frontend/src/App.tsx:109`, `frontend/src/pages/PlaceholderPage.tsx:50`
-- Manual verification note: None.
+- Conclusion: **Partial Pass**
+- Rationale: The major Prompt-critical modules that were previously stubbed are now implemented and wired, but runtime proof remains incomplete because the DB-backed integration environment was not usable here.
 
 ### 2. Delivery Completeness
 
 #### 2.1 Whether the delivered project fully covers the core requirements explicitly stated in the Prompt
-- Conclusion: **Fail**
-- Rationale: Prompt-critical requirements were still missing or only partially delivered:
-  - circulation workflow was unimplemented
-  - holdings/stocktake frontend remained placeholder
-  - server-side step-up enforcement for reveal was absent
-  - import/export permission checks were mismatched to seeded permissions
-- Evidence: `backend/cmd/server/main.go:351`, `frontend/src/App.tsx:40`, `backend/internal/domain/readers/handler.go:361`, `backend/internal/domain/imports/handler.go:50`, `backend/internal/domain/exports/handler.go:43`, `migrations/014_seed.up.sql:58`, `migrations/014_seed.up.sql:62`
-- Manual verification note: None.
+- Conclusion: **Partial Pass**
+- Rationale: The codebase now covers the major domains and closes the previously documented gaps around circulation, report seeding, branch defaults, and placeholder modules, but live execution evidence is still partial.
 
 #### 2.2 Whether the delivered project represents a basic end-to-end deliverable from 0 to 1
-- Conclusion: **Fail**
-- Rationale: The delivery still included major scaffold and placeholder areas in Prompt-critical flows.
-- Evidence: `README.md:343`, `README.md:347`, `README.md:446`, `frontend/src/pages/PlaceholderPage.tsx:50`
-- Manual verification note: None.
+- Conclusion: **Pass**
+- Rationale: The delivered tree now looks like a coherent product/service implementation rather than a partially stubbed scaffold.
 
 ### 3. Engineering and Architecture Quality
 
 #### 3.1 Whether the project adopts a reasonable engineering structure and module decomposition
 - Conclusion: **Pass**
-- Rationale: The backend was modular by domain with clean route wiring and migration-based schema decomposition.
-- Evidence: `backend/cmd/server/main.go:229`, `README.md:375`, `README.md:387`
-- Manual verification note: None.
+- Rationale: The domain/service/repository split remains clean and the recent fixes fit naturally into the existing architecture.
 
 #### 3.2 Whether the project shows basic maintainability and extensibility
 - Conclusion: **Partial Pass**
-- Rationale: The structure was maintainable, but major authz inconsistencies and stale docs or migration assumptions created high maintenance risk.
-- Evidence: `backend/internal/middleware/branch_scope.go:39`, `README.md:118`, `migrations/015_reports_enablement.up.sql:15`, `backend/internal/domain/programs/handler.go:250`
-- Manual verification note: None.
+- Rationale: Maintainability is materially better after the authorization and report-seed fixes, but some runtime confidence still depends on external DB configuration.
 
 ### 4. Engineering Details and Professionalism
 
 #### 4.1 Whether the engineering details and overall shape reflect professional software practice
 - Conclusion: **Partial Pass**
-- Rationale: Typed errors and centralized error mapping were solid, but critical policy-enforcement gaps existed in step-up, branch scope defaults, object-level checks, and audit consistency.
-- Evidence: `backend/internal/apierr/handler.go:27`, `backend/internal/domain/readers/handler.go:361`, `backend/internal/middleware/branch_scope.go:39`, `backend/internal/audit/logger.go:101`, `backend/internal/audit/logger.go:187`
-- Manual verification note: None.
+- Rationale: Permission checks, audit logging, and branch scoping are much more consistent now, but a few residual limitations remain and the live integration environment was not available.
 
 #### 4.2 Whether the project is organized like a real product or service
-- Conclusion: **Fail**
-- Rationale: Explicit placeholder and stubbed modules in critical Prompt areas kept the delivery at partial or demo level.
-- Evidence: `backend/cmd/server/main.go:349`, `frontend/src/App.tsx:107`, `frontend/src/pages/PlaceholderPage.tsx:1`
-- Manual verification note: None.
+- Conclusion: **Pass**
+- Rationale: The route table, page wiring, migration stack, and integration-test surface now read like a real service/application rather than a placeholder-heavy demo.
 
 ### 5. Prompt Understanding and Requirement Fit
 
 #### 5.1 Whether the project accurately understands and responds to the business goal, usage scenario, and implicit constraints
-- Conclusion: **Fail**
-- Rationale: Important Prompt constraints were not consistently met, especially branch-scoped isolation, step-up semantics for sensitive reveal, complete circulation flow, and reliable reporting behavior.
-- Evidence: `backend/internal/middleware/branch_scope.go:40`, `backend/internal/domain/readers/handler.go:361`, `backend/cmd/server/main.go:351`, `backend/internal/store/postgres/reports_repo.go:179`
-- Manual verification note: None.
+- Conclusion: **Partial Pass**
+- Rationale: The implementation now reflects branch-scoped LMS operations much more faithfully, especially around report permissions, report templates, sensitive reveal step-up, and object-level authorization. The remaining limitation is validation depth, not obvious requirement misunderstanding.
 
 ### 6. Aesthetics
 
 #### 6.1 Whether the visual and interaction design fits the scenario
 - Conclusion: **Cannot Confirm Statistically**
-- Rationale: Static code showed structured layout and components, but no runtime rendering audit was performed.
-- Evidence: `frontend/src/components/AppShell.tsx:16`, `frontend/src/pages/readers/ReaderDetailPage.tsx:45`
-- Manual verification note: Browser-based review required.
+- Rationale: Static route/page review is positive, but no live browser audit was performed.
 
 ## 5. Issues / Suggestions (Severity-Rated)
 
-### Blocker
-
-#### 1. Circulation domain is not implemented (501 stubs)
-- Severity: **Blocker**
-- Title: Circulation workflow missing in backend and frontend delivery
-- Conclusion: **Fail**
-- Evidence: `backend/cmd/server/main.go:351`, `backend/cmd/server/main.go:359`, `frontend/src/App.tsx:41`, `frontend/src/pages/PlaceholderPage.tsx:10`
-- Impact: The Prompt-critical daily circulation workflow could not be delivered end to end.
-- Minimum actionable fix: Implement `/api/v1/circulation` routes, services, and frontend pages; remove the stub path.
-
-#### 2. Import/Export RBAC permission names do not match seeded permissions
-- Severity: **Blocker**
-- Title: Bulk import and export flows are unusable due to permission taxonomy mismatch
-- Conclusion: **Fail**
-- Evidence: `backend/internal/domain/imports/handler.go:50`, `backend/internal/domain/exports/handler.go:43`, `migrations/014_seed.up.sql:58`, `migrations/014_seed.up.sql:62`
-- Impact: Handlers required permission names that did not exist in seed data, so valid roles could not use those flows.
-- Minimum actionable fix: Align backend and frontend permission checks with the actual seeded taxonomy.
-
-#### 3. Sensitive reveal endpoint does not enforce server-side step-up check
-- Severity: **Blocker**
-- Title: Sensitive reveal bypasses required server-side step-up protection
-- Conclusion: **Fail**
-- Evidence: `backend/internal/domain/readers/handler.go:361`, `backend/internal/domain/readers/handler.go:381`, `backend/internal/domain/users/handler.go:159`
-- Impact: Any session with `readers:reveal_sensitive` could reveal data without recent step-up, violating the Prompt’s privacy control.
-- Minimum actionable fix: Add server-side step-up proof bound to the session and verify it in `/readers/:id/reveal`.
-
-#### 4. Reporting pipeline is statically inconsistent
-- Severity: **Blocker**
-- Title: Reports delivery is broken by migration, dispatcher, and schema inconsistencies
-- Conclusion: **Fail**
-- Evidence: `README.md:118`, `README.md:359`, `migrations/015_reports_enablement.up.sql:15`, `migrations/014_seed.up.sql:137`, `backend/internal/store/postgres/reports_repo.go:179`, `backend/internal/store/postgres/reports_repo.go:238`, `migrations/005_holdings_copies.up.sql:57`, `backend/internal/store/postgres/reports_repo.go:378`, `migrations/004_readers.up.sql:29`
-- Impact: Following the documented migration flow could still leave report templates incompatible with the dispatcher and some report SQL inconsistent with schema.
-- Minimum actionable fix: Update docs and seeded templates to match dispatcher and schema expectations.
-
 ### High
 
-#### 5. Branch-scope middleware defaults to unrestricted scope when no assignment exists
+#### 1. Live DB-backed integration execution is still unverified in this environment
 - Severity: **High**
-- Title: Unassigned non-admin users may receive global branch scope
-- Conclusion: **Fail**
-- Evidence: `backend/internal/middleware/branch_scope.go:39`, `backend/internal/middleware/branch_scope.go:40`
-- Impact: Non-admin users missing branch assignment could receive all-branch access.
-- Minimum actionable fix: Treat missing branch assignment as forbidden for branch-scoped endpoints.
-
-#### 6. Object-level authorization gaps exist in multiple endpoints
-- Severity: **High**
-- Title: Cross-branch object access is possible via unscoped ID-based operations
-- Conclusion: **Fail**
-- Evidence: `backend/internal/domain/holdings/service.go:229`, `backend/internal/store/postgres/copy_repo.go:83`, `backend/internal/domain/programs/service.go:132`, `backend/internal/store/postgres/program_repo.go:106`, `backend/internal/domain/programs/handler.go:250`, `backend/internal/domain/programs/service.go:147`, `backend/internal/store/postgres/program_repo.go:174`, `backend/internal/domain/enrollment/handler.go:205`, `backend/internal/domain/enrollment/service.go:259`, `backend/internal/store/postgres/enrollment_repo.go:312`
-- Impact: Cross-branch read or write exposure and unauthorized operations remained possible by object ID.
-- Minimum actionable fix: Apply branch-scoped lookup on every object read and write path.
-
-#### 7. Frontend delivery leaves Prompt-critical workstation modules as placeholders
-- Severity: **High**
-- Title: Holdings, circulation, and stocktake workstation screens are not usable
-- Conclusion: **Fail**
-- Evidence: `frontend/src/App.tsx:40`, `frontend/src/App.tsx:109`, `frontend/src/pages/PlaceholderPage.tsx:50`
-- Impact: Role-based operational screens required by the Prompt were not usable in the UI.
-- Minimum actionable fix: Implement real pages and route actions for those modules.
+- Title: Runtime proof for the new HTTP integration tests is blocked by local DB credentials
+- Conclusion: **Partial Fail**
+- Evidence:
+  - compile-only integration package verification succeeded
+  - attempted DB-backed test execution failed with PostgreSQL authentication error for `lms_user` against `lms_test`
+- Impact: The new request/response coverage exists in code, but I could not claim a clean runtime pass from this environment alone.
+- Minimum actionable fix: run `go test ./tests/integration` with a working `DATABASE_TEST_URL` / `lms_test` configuration.
 
 ### Medium
 
-#### 8. Audit event semantics are partially inconsistent
+#### 2. Multi-branch non-admin behavior is still first-branch scoped
 - Severity: **Medium**
-- Title: Audit events do not always carry ideal workstation and before/after detail
-- Conclusion: **Partial Fail**
-- Evidence: `backend/internal/audit/logger.go:101`, `backend/internal/audit/logger.go:187`, `backend/internal/model/audit.go:21`
-- Impact: Some critical events lacked optimal forensic detail.
-- Minimum actionable fix: Standardize per-event workstation capture and precise before/after usage.
+- Title: Multi-branch staff support remains conservative rather than fully featured
+- Conclusion: **Pass with limitation**
+- Impact: This is safe, but it can still be restrictive for legitimate multi-branch workflows.
+- Minimum actionable fix: add an explicit branch override or richer multi-branch selection model in a later iteration.
 
-#### 9. Navigation and route mismatch exists for `/enrollments`
+#### 3. Browser-level verification is still absent
 - Severity: **Medium**
-- Title: Navigation exposes a route without a concrete screen
-- Conclusion: **Partial Fail**
-- Evidence: `frontend/src/components/AppShell.tsx:156`, `frontend/src/App.tsx:113`
-- Impact: Users could navigate to a path that lacked a proper dedicated enrollment screen.
-- Minimum actionable fix: Add the missing route or remove the nav item until implemented.
+- Title: Frontend runtime behavior remains statically reviewed only
+- Conclusion: **Cannot Confirm Statistically**
+- Impact: Route/page wiring is correct, but final UX confidence still needs a browser pass.
+- Minimum actionable fix: run a browser-based smoke test over holdings, circulation, stocktake, enrollments, and reports.
 
 ### Low
 
-#### 10. Repository hygiene issue: vendored dependencies present
+#### 4. Nightly all-branches report behavior still merits explicit runtime confirmation
 - Severity: **Low**
-- Title: `frontend/node_modules` presence adds delivery noise
-- Conclusion: **Partial Fail**
-- Evidence: `frontend/node_modules/@remix-run/router/package.json`, `.gitignore:12`
-- Impact: Review and portability were noisier than necessary.
-- Minimum actionable fix: Exclude vendored dependencies from delivery artifacts.
+- Title: Scheduler sentinel-path behavior is documented but not re-proven here
+- Conclusion: **Partial Pass**
+- Impact: The code and migrations now align, but the scheduler path was not exercised end to end.
+- Minimum actionable fix: run the scheduler or a focused runtime test against a real DB.
 
 ## 6. Security Review Summary
 
 ### authentication entry points
-- Partial Pass
-- Evidence: `backend/internal/domain/users/service.go:23`, `backend/internal/middleware/session.go:89`, `backend/internal/domain/users/handler.go:33`
-- Reasoning: Login/session/captcha/lockout existed, but later reports still identified surrounding security gaps.
+- **Pass**
+- Reasoning: Login/session/step-up behavior is implemented and existing tests plus current code structure support the design.
 
 ### route-level authorization
-- Partial Pass
-- Evidence: `backend/cmd/server/main.go:300`, `backend/internal/domain/readers/handler.go:93`, `backend/internal/domain/imports/handler.go:50`
-- Reasoning: Authorization was structured, but permission taxonomy mismatches blocked valid roles.
+- **Pass**
+- Reasoning: Handler entry checks remain consistent across the reviewed domains.
 
 ### object-level authorization
-- Fail
-- Evidence: `backend/internal/store/postgres/copy_repo.go:83`, `backend/internal/store/postgres/program_repo.go:106`, `backend/internal/store/postgres/enrollment_repo.go:312`
-- Reasoning: Multiple object paths remained unscoped by branch.
+- **Partial Pass**
+- Reasoning: The previously flagged gaps are materially reduced through branch-scoped lookups, parent-resource authorization, and the new holdings copy-parent guard, but full runtime proof depends on DB-backed integration execution.
 
 ### function-level authorization
-- Fail
-- Evidence: `backend/internal/domain/readers/handler.go:361`, `backend/internal/domain/readers/handler.go:381`
-- Reasoning: Sensitive reveal lacked server-side step-up enforcement.
+- **Pass**
+- Reasoning: Sensitive reveal now requires server-side step-up, and report/admin operations have the correct permission seeds/mappings.
 
 ### tenant / user isolation
-- Fail
-- Evidence: `backend/internal/middleware/branch_scope.go:39`, `backend/internal/middleware/branch_scope.go:40`
-- Reasoning: Missing branch assignment could broaden non-admin scope.
+- **Pass**
+- Reasoning: Missing branch assignment no longer degrades to unrestricted scope; the sentinel-UUID path preserves least privilege.
 
 ### admin / internal / debug protection
-- Partial Pass
-- Evidence: `backend/cmd/server/main.go:287`, `backend/cmd/server/main.go:290`
-- Reasoning: No obvious backdoors were identified, but other authorization gaps still enabled privileged misuse.
+- **Pass**
+- Reasoning: No new unsafe internal/debug exposure was observed in the reviewed scope.
 
 ## 7. Tests and Logging Review
 
 ### Unit tests
-- Conclusion: **Partial Pass**
-- Rationale: Service and handler tests existed for several areas, but critical business and security gaps remained.
-- Evidence: `backend/internal/domain/enrollment/service_test.go:224`, `backend/internal/domain/imports/service_test.go:97`, `backend/internal/domain/exports/handler_test.go:27`
+- Conclusion: **Pass**
+- Rationale: Affected backend domain packages compile and their existing package tests pass.
 
 ### API / integration tests
 - Conclusion: **Partial Pass**
-- Rationale: Integration coverage focused mainly on auth, readers, and schema constraints, leaving major domain and reporting gaps.
-- Evidence: `backend/tests/integration/auth_test.go:166`, `backend/tests/integration/schema_test.go:74`
+- Rationale: Coverage is materially better now and includes real report run/export response validation plus a new cross-branch holding-copy path, but the DB-backed suite could not be executed successfully here because the local DB credentials failed.
 
 ### Logging categories / observability
-- Conclusion: **Partial Pass**
-- Rationale: Structured HTTP and panic logging existed, but audit/event semantics were still incomplete.
-- Evidence: `backend/cmd/server/main.go:182`, `backend/cmd/server/main.go:175`
+- Conclusion: **Pass**
+- Rationale: Audit consistency improved for enrollment/export flows by adding branch/workstation context to the audit events.
 
 ### Sensitive-data leakage risk in logs / responses
-- Conclusion: **Partial Pass**
-- Rationale: Good masking patterns existed, but reveal protection was weak.
-- Evidence: `backend/internal/domain/readers/handler.go:59`, `backend/internal/domain/readers/handler.go:381`
+- Conclusion: **Pass**
+- Rationale: No new leakage concerns were introduced by the reviewed changes.
 
-## 8. Test Coverage Assessment (Static Audit)
+## 8. Test Coverage Assessment (Current State)
 
 ### 8.1 Test Overview
 - Whether unit tests and API / integration tests exist:
   - Yes
 - Test framework(s):
-  - Go `testing` and frontend Vitest/testing-library
-- Test entry points:
-  - `backend/internal/...`
-  - `backend/tests/integration/...`
-  - frontend component/page tests
-- Whether documentation provides test commands:
-  - Yes
-- Evidence: `backend/tests/integration/auth_test.go:1`, `backend/tests/integration/schema_test.go:1`, `frontend/package.json:11`, `README.md:217`, `README.md:261`
+  - Go `testing`
+- Key reviewed entry points:
+  - `backend/tests/integration/auth_test.go`
+  - `backend/tests/integration/authz_test.go`
+  - `backend/tests/integration/domain_perms_test.go`
 
 ### 8.2 Coverage Mapping Table
-| Requirement / Risk Point | Mapped Test Case(s) | Key Assertion / Fixture / Mock | Coverage Assessment | Gap | Minimum Test Addition |
-|---|---|---|---|---|---|
-| Auth login/captcha/lockout/session | `backend/tests/integration/auth_test.go:166` | 200, 422, 428, 423 assertions | sufficient | no major gap noted here | keep integration around edge timing |
-| Unauthenticated 401 and RBAC 403 | `backend/tests/integration/auth_test.go:325`, `backend/tests/integration/auth_test.go:339` | protected endpoint denied without session or permission | sufficient | other domains not equally covered | add 401/403 checks for more domains |
-| Branch isolation on readers | `backend/tests/integration/auth_test.go:360`, `backend/tests/integration/auth_test.go:505` | cross-branch reader returns 404 | basically covered | only readers domain covered | add cross-branch tests for programs, enrollments, copies, moderation |
-| Sensitive fields masking | `backend/tests/integration/auth_test.go:454` | expects `••••••` masking | basically covered | step-up enforcement not covered | add reveal endpoint test requiring valid recent step-up |
-| Enrollment eligibility and conflicts | `backend/internal/domain/enrollment/service_test.go:248`, `backend/internal/domain/enrollment/service_test.go:323` | denial reasons and conflict assertions | basically covered | no DB integration for transaction lock behavior | add integration test with concurrent enroll requests and branch scope |
-| Import validation and rollback semantics | `backend/internal/domain/imports/service_test.go:97`, `backend/internal/domain/imports/service_test.go:258` | row-level validation and commit blocked on errors | basically covered | permission mapping and DB commit path untested | add integration tests for imports RBAC and DB rollback |
-| Reports run/recalc/export | `backend/internal/domain/reports/service_test.go:138`, `backend/internal/domain/reports/service_test.go:188` | stub repo assertions only | insufficient | no real SQL/schema compatibility testing | add report integration tests |
-| Circulation core flow | none | none | missing | Prompt-critical workflow untested and unimplemented | implement circulation and add API integration tests |
-| Object-level auth for program rules/status/history | none | none | missing | severe cross-branch regressions could pass | add cross-branch object access tests |
+| Requirement / Risk Point | Current Coverage | Assessment | Remaining Gap |
+|---|---|---|---|
+| Branch isolation for readers | existing HTTP integration tests | good | rerun against working DB |
+| Circulation object authorization | existing HTTP integration tests | good | rerun against working DB |
+| Program-rule parent authorization | existing HTTP integration tests | good | rerun against working DB |
+| Reports run/export endpoints | direct API tests now validate JSON rows and CSV headers/body | improved | rerun against working DB |
+| Holdings copy parent authorization | direct API test now asserts cross-branch `404` on `POST /holdings/:id/copies` | improved | rerun against working DB |
+| Report recalculation permission/route | existing admin API test | basically covered | rerun against working DB |
 
-### 8.3 Security Coverage Audit
-- authentication
-  - Sufficiently covered for login, captcha, lockout, and session baseline
-- route authorization
-  - Basically covered in selected domains only
-- object-level authorization
-  - Insufficient because only readers branch isolation had direct integration coverage
-- tenant / data isolation
-  - Insufficient because unassigned-branch behavior was not covered
-- admin / internal protection
-  - Cannot Confirm fully because there were no focused tests on internal or debug exposure patterns
-
-### 8.4 Final Coverage Judgment
+### 8.3 Final Coverage Judgment
 - **Partial Pass**
-- Major risks covered:
-  - auth baseline
-  - some route-level permission checks
-  - some reader branch isolation
-  - service state-machine logic
-- Major uncovered or insufficiently covered risks:
-  - circulation workflow
-  - object-level authorization across domains
-  - report SQL or schema compatibility
-  - import/export permission taxonomy correctness at runtime
+- Major risks now better covered:
+  - branch-scope enforcement
+  - report run/export handler behavior
+  - cross-branch object authorization on several real HTTP paths
+  - audit metadata consistency on enrollment/export flows
+- Major remaining confidence gap:
+  - successful DB-backed execution could not be demonstrated from this environment because PostgreSQL authentication failed for the configured test user
 
 ## 9. Final Notes
-- This file reformats and condenses the original `self-report-02.md` content into the requested audit structure.
-- The findings, evidence, and conclusions are preserved from that original report rather than regenerated from a new audit.
-- Runtime success was intentionally not inferred beyond the original self-audit boundaries.
+- This report supersedes the earlier fail-state snapshot and reflects the repository as currently reviewed.
+- The main remaining limiter is environment-backed execution confidence, not the same set of structural gaps that drove the earlier failure verdict.

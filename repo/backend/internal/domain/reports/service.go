@@ -9,8 +9,8 @@ import (
 	"sort"
 	"time"
 
-	auditpkg "lms/internal/audit"
 	"lms/internal/apperr"
+	auditpkg "lms/internal/audit"
 	"lms/internal/domain/exports"
 	"lms/internal/model"
 )
@@ -48,12 +48,13 @@ type RunResult struct {
 
 // ExportReportRequest holds parameters for a CSV report export.
 type ExportReportRequest struct {
-	BranchID     string
-	DefinitionID string
-	From         time.Time
-	To           time.Time
-	Filters      map[string]string
-	ActorUserID  string
+	BranchID      string
+	DefinitionID  string
+	From          time.Time
+	To            time.Time
+	Filters       map[string]string
+	ActorUserID   string
+	WorkstationID string
 }
 
 // ExportReportResult wraps the generated CSV bytes and the audit record.
@@ -212,10 +213,10 @@ func (s *Service) ExportReport(ctx context.Context, req ExportReportRequest) (*E
 	// Serialize filters for audit record — created BEFORE file generation.
 	filterJSON, _ := json.Marshal(req.Filters)
 	job := &model.ExportJob{
-		BranchID:      req.BranchID,
-		ExportType:    "report",
+		BranchID:       req.BranchID,
+		ExportType:     "report",
 		FiltersApplied: json.RawMessage(filterJSON),
-		ExportedBy:    req.ActorUserID,
+		ExportedBy:     req.ActorUserID,
 	}
 	if err := s.exportRepo.Create(ctx, job); err != nil {
 		return nil, fmt.Errorf("create export job: %w", err)
@@ -243,7 +244,7 @@ func (s *Service) ExportReport(ctx context.Context, req ExportReportRequest) (*E
 	job.RowCount = &rowCount
 	job.FileName = &fileName
 	if s.auditLogger != nil {
-		s.auditLogger.LogExportCreated(ctx, req.ActorUserID, "", job.ID, "report", req.BranchID, rowCount)
+		s.auditLogger.LogExportCreated(ctx, req.ActorUserID, "", job.ID, "report", req.BranchID, req.WorkstationID, rowCount)
 	}
 
 	return &ExportReportResult{

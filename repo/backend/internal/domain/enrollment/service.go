@@ -43,10 +43,10 @@ type ProgramLoader interface {
 
 // Service orchestrates eligibility evaluation and atomic enrollment.
 type Service struct {
-	repo          Repository
-	programs      ProgramLoader
-	readers       ReaderLoader
-	auditLogger   *auditpkg.Logger
+	repo        Repository
+	programs    ProgramLoader
+	readers     ReaderLoader
+	auditLogger *auditpkg.Logger
 }
 
 // NewService creates a new enrollment Service.
@@ -209,7 +209,7 @@ func (s *Service) Enroll(ctx context.Context, req EnrollReaderRequest) (*model.E
 
 	if s.auditLogger != nil {
 		s.auditLogger.LogEnrollmentChanged(ctx,
-			req.ActorUserID, "", enrollment.ID, req.ProgramID,
+			req.ActorUserID, "", enrollment.ID, req.ProgramID, req.BranchID, req.WorkstationID,
 			"none", "confirmed", "initial enrollment",
 		)
 	}
@@ -226,6 +226,7 @@ type DropRequest struct {
 	BranchID      string
 	Reason        string
 	ActorUserID   string
+	WorkstationID string
 }
 
 // Drop cancels an enrollment and records the status change.
@@ -235,7 +236,7 @@ func (s *Service) Drop(ctx context.Context, req DropRequest) error {
 	}
 	if s.auditLogger != nil {
 		s.auditLogger.LogEnrollmentChanged(ctx,
-			req.ActorUserID, "", req.EnrollmentID, "",
+			req.ActorUserID, "", req.EnrollmentID, "", req.BranchID, req.WorkstationID,
 			"confirmed", "cancelled", req.Reason,
 		)
 	}
