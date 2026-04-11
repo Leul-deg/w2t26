@@ -37,8 +37,8 @@ Source basis: current repository state plus the backend/frontend changes present
 11. Navigation mismatch for `/enrollments` was resolved.
     - How it was fixed: the sidebar nav item in `frontend/src/components/AppShell.tsx` now matches the concrete `/enrollments` route registered in `frontend/src/App.tsx`.
 
-12. Vendored frontend dependencies are not present in the delivered tree.
-    - How it was fixed: there is no `frontend/node_modules/` directory in the repository, and `.gitignore` excludes it explicitly.
+12. Vendored frontend dependencies are not tracked in version control.
+    - How it was fixed: `frontend/node_modules/` is excluded by `.gitignore` and carries zero tracked files (`git ls-files frontend/node_modules` returns no results). The directory may be present on a developer's working copy after `npm install` but is never committed to the repository.
 
 13. Missing API tests were addressed with direct handler-level integration coverage.
     - How it was fixed: the integration suite now includes concrete request/response checks for report run/export endpoints and the cross-branch holding-copy path, in addition to the previously added branch-scope and object-authorization HTTP tests.
