@@ -1,4 +1,4 @@
-package integration
+package apitests
 
 // authz_test.go covers object-level and branch-scope authorization invariants
 // that the domain-permission tests (domain_perms_test.go) do not reach:

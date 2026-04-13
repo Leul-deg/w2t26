@@ -90,13 +90,13 @@ echo "==> Frontend tests"
 )
 
 echo
-echo "==> Backend integration tests"
+echo "==> Backend API tests"
 (
   cd "$ROOT_DIR"
   docker compose exec -T backend bash -lc "
     cd /workspace/backend &&
     export DATABASE_TEST_URL='postgresql://lms_user:changeme@postgres:5432/lms_test?sslmode=disable' &&
-    /usr/local/go/bin/go test ./tests/integration/... -v
+    /usr/local/go/bin/go test ./API_TESTS/... -v
   "
 )
 

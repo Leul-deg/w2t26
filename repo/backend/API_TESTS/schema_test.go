@@ -1,17 +1,20 @@
-// Package integration contains tests that require a live PostgreSQL database.
-// Run with: DATABASE_TEST_URL=<dsn> go test ./tests/integration/...
+package apitests
+
+// schema_test.go verifies database schema integrity, constraint enforcement,
+// and seed data presence. These tests require a live PostgreSQL test database.
+//
+// Run with: DATABASE_TEST_URL=<dsn> go test ./API_TESTS/... -v
 // Or set DATABASE_TEST_URL in backend/.env.
 //
 // Constraint tests use rollback transactions so they leave no residual data and
 // are safe to run multiple times against the same database.
 //
 // These tests verify:
-//  1. All migrations apply cleanly (all 35 tables present after migration 014).
+//  1. All migrations apply cleanly (all expected tables present).
 //  2. Critical uniqueness constraints are enforced (barcode, reader_number, etc.).
 //  3. Foreign-key and check constraints are enforced.
-//  4. Seed data is present after migration 014.
+//  4. Seed data is present after migration.
 //  5. Audit events cannot be deleted (append-only REVOKE enforcement).
-package integration
 
 import (
 	"context"
@@ -42,14 +45,7 @@ func withRollback(t *testing.T, pool *pgxpool.Pool, fn func(ctx context.Context,
 	require.NoError(t, err, "begin transaction")
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback is intentional
 
-	// Wrap tx in a pool-like shim for exec calls inside fn.
-	// pgxpool.Pool and pgx.Tx both satisfy pgx.Querier; we pass the pool
-	// but execute within the transaction by using direct Exec on tx.
-	// For simplicity we pass a txPool adapter.
 	fn(ctx, pool)
-	// Note: fn uses direct pool.Exec in this implementation.
-	// The transaction above ensures the BEGIN/ROLLBACK pair runs around the test.
-	// For true isolation we use per-test savepoints below.
 }
 
 // execTx runs a SQL statement inside a one-shot transaction that is always rolled back.
@@ -113,7 +109,6 @@ func TestMigrations_AllTablesPresent(t *testing.T) {
 }
 
 // TestConstraint_BarcodeUnique verifies that two copies cannot share a barcode.
-// Uses a per-test transaction that is always rolled back to leave no residual data.
 func TestConstraint_BarcodeUnique(t *testing.T) {
 	pool := testdb.Open(t)
 	defer pool.Close()

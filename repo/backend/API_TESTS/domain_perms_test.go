@@ -1,4 +1,4 @@
-package integration
+package apitests
 
 // domain_perms_test.go verifies permission enforcement for holdings, stocktake,
 // imports, exports, and reports routes via a full wired test application.
@@ -357,8 +357,6 @@ func TestImports_UploadRequiresPermission(t *testing.T) {
 
 	cookie := loginAs(t, app.testApp, username, "Password123!")
 
-	// The upload endpoint reads multipart, but the permission check happens before
-	// the file is parsed — so any request body produces 403, not 400.
 	rec := doRequest(t, app.testApp, http.MethodPost, "/api/v1/imports", nil, cookie)
 	assert.Equal(t, http.StatusForbidden, rec.Code,
 		"content_moderator has no imports:create — should get 403: body=%s", rec.Body.String())
@@ -458,7 +456,6 @@ func TestReports_AdminCanListDefinitions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code,
 		"admin should get 200 on GET /reports/definitions: body=%s", rec.Body.String())
 
-	// Seeded definitions include program_utilization and enrollment_mix.
 	body := rec.Body.String()
 	assert.Contains(t, body, "program_utilization", "seeded program_utilization definition must be present")
 	assert.Contains(t, body, "enrollment_mix", "seeded enrollment_mix definition must be present")
