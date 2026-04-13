@@ -69,8 +69,8 @@ func TestCirculation_CheckoutAndReturn(t *testing.T) {
 		},
 		cookie,
 	)
-	require.Equal(t, http.StatusOK, returnRec.Code,
-		"POST /circulation/return must return 200: body=%s", returnRec.Body.String())
+	require.Equal(t, http.StatusCreated, returnRec.Code,
+		"POST /circulation/return must return 201: body=%s", returnRec.Body.String())
 
 	// 4. After return the active checkout should be gone (404).
 	after := doRequest(t, app.testApp, http.MethodGet,

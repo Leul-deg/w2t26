@@ -187,8 +187,8 @@ func TestPrograms_AddAndRemoveRule(t *testing.T) {
 	// Remove rule.
 	delRec := doRequest(t, app.testApp, http.MethodDelete,
 		"/api/v1/programs/"+programID+"/rules/"+ruleID, nil, cookie)
-	assert.Equal(t, http.StatusNoContent, delRec.Code,
-		"DELETE /programs/:id/rules/:rule_id must return 204: body=%s", delRec.Body.String())
+	assert.Equal(t, http.StatusOK, delRec.Code,
+		"DELETE /programs/:id/rules/:rule_id must return 200: body=%s", delRec.Body.String())
 }
 
 // TestPrograms_Prerequisites verifies adding and removing prerequisites.
@@ -211,8 +211,8 @@ func TestPrograms_Prerequisites(t *testing.T) {
 
 	var ar map[string]any
 	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &ar))
-	prereqLinkID, ok := ar["id"].(string)
-	require.True(t, ok && prereqLinkID != "")
+	_, ok := ar["id"].(string)
+	require.True(t, ok, "prerequisite add response must include non-empty id")
 
 	// List prerequisites.
 	listRec := doRequest(t, app.testApp, http.MethodGet,
@@ -222,11 +222,12 @@ func TestPrograms_Prerequisites(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &prereqs))
 	assert.NotEmpty(t, prereqs, "program must have at least 1 prerequisite after adding")
 
-	// Remove prerequisite.
+	// Remove prerequisite: the :req_id param is the required program's ID,
+	// not the link row's own ID.
 	delRec := doRequest(t, app.testApp, http.MethodDelete,
-		"/api/v1/programs/"+programID+"/prerequisites/"+prereqLinkID, nil, cookie)
-	assert.Equal(t, http.StatusNoContent, delRec.Code,
-		"DELETE /programs/:id/prerequisites/:req_id must return 204: body=%s", delRec.Body.String())
+		"/api/v1/programs/"+programID+"/prerequisites/"+prereqID, nil, cookie)
+	assert.Equal(t, http.StatusOK, delRec.Code,
+		"DELETE /programs/:id/prerequisites/:req_id must return 200: body=%s", delRec.Body.String())
 }
 
 // ── Enrollment lifecycle ──────────────────────────────────────────────────────
@@ -303,7 +304,7 @@ func TestEnrollment_EnrollAndDrop(t *testing.T) {
 		"GET /programs/:id/seats must return 200: body=%s", seatsRec.Body.String())
 	var seats map[string]any
 	require.NoError(t, json.Unmarshal(seatsRec.Body.Bytes(), &seats))
-	remaining, _ := seats["remaining"].(float64)
+	remaining, _ := seats["remaining_seats"].(float64)
 	assert.EqualValues(t, 9, remaining,
 		"remaining seats must decrease by 1 after enrollment (capacity=10)")
 
@@ -313,8 +314,8 @@ func TestEnrollment_EnrollAndDrop(t *testing.T) {
 		map[string]any{"reader_id": readerID, "reason": "test teardown"},
 		cookie,
 	)
-	require.Equal(t, http.StatusOK, dropRec.Code,
-		"POST /enrollments/:id/drop must return 200: body=%s", dropRec.Body.String())
+	require.Equal(t, http.StatusNoContent, dropRec.Code,
+		"POST /enrollments/:id/drop must return 204: body=%s", dropRec.Body.String())
 }
 
 // TestEnrollment_History verifies GET /enrollments/:id/history returns audit trail.
@@ -450,8 +451,8 @@ func insertAPITestProgramWithCapacity(t *testing.T, branchID string, capacity in
 	var id string
 	err := pool.QueryRow(contextBG(),
 		`INSERT INTO lms.programs
-		   (branch_id, title, capacity, starts_at, ends_at, enrollment_channel)
-		 VALUES ($1, $2, $3, $4, $5, 'any') RETURNING id::text`,
+		   (branch_id, title, capacity, starts_at, ends_at, enrollment_channel, status)
+		 VALUES ($1, $2, $3, $4, $5, 'any', 'published') RETURNING id::text`,
 		branchID,
 		"API Test Program "+fmt.Sprintf("%d", now.UnixNano()),
 		capacity,

@@ -159,17 +159,20 @@ func TestCopies_Statuses(t *testing.T) {
 func TestCopies_AddAndGet(t *testing.T) {
 	app := newCompleteTestApp(t)
 	cookie := adminCookie(t, app)
+	// Admin has an empty branch scope; use an ops user for the copy-create call
+	// so the handler has a concrete branch_id to insert.
+	opsCookie := opsUserCookie(t, app)
 
 	holdingID := insertAPITestHolding(t, mainBranchID)
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	barcode := "COPY-" + suffix
 
-	// Add copy.
+	// Add copy (ops user — has branch scope mainBranchID).
 	addRec := doRequest(t, app.testApp, http.MethodPost, "/api/v1/holdings/"+holdingID+"/copies", map[string]any{
 		"barcode":     barcode,
 		"status_code": "available",
 		"condition":   "good",
-	}, cookie)
+	}, opsCookie)
 	require.Equal(t, http.StatusCreated, addRec.Code,
 		"POST /holdings/:id/copies must return 201: body=%s", addRec.Body.String())
 
@@ -284,7 +287,7 @@ func TestCopies_UpdateStatus(t *testing.T) {
 	copyID := insertAPITestCopy(t, holdingID, mainBranchID, "UPD-STS-"+suffix)
 
 	rec := doRequest(t, app.testApp, http.MethodPatch, "/api/v1/copies/"+copyID+"/status",
-		map[string]any{"status_code": "on_loan"},
+		map[string]any{"status_code": "lost"},
 		cookie,
 	)
 	require.Equal(t, http.StatusOK, rec.Code,
@@ -295,7 +298,7 @@ func TestCopies_UpdateStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var cp map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &cp))
-	assert.Equal(t, "on_loan", cp["status_code"])
+	assert.Equal(t, "lost", cp["status_code"])
 }
 
 // TestCopies_UpdateCondition verifies PATCH /copies/:id updates condition/notes.

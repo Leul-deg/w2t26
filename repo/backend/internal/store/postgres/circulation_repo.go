@@ -147,6 +147,19 @@ func (r *CirculationRepo) Return(ctx context.Context, e *model.CirculationEvent)
 		return err
 	}
 
+	// Mark the active checkout row as returned so GetActiveCheckout returns 404
+	// after the copy is back. The returned_at field on a checkout row signals that
+	// the loan has been closed; without this update, GetActiveCheckout would still
+	// find the row (event_type='checkout' AND returned_at IS NULL).
+	if _, err := tx.Exec(ctx, `
+		UPDATE lms.circulation_events
+		   SET returned_at = NOW()
+		 WHERE copy_id = $1 AND event_type = 'checkout' AND returned_at IS NULL`,
+		e.CopyID,
+	); err != nil {
+		return err
+	}
+
 	// Reset copy status.
 	if _, err := tx.Exec(ctx, `
 		UPDATE lms.copies SET status_code = 'available', updated_at = NOW()

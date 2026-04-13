@@ -183,13 +183,18 @@ func (r *EnrollmentRepo) Drop(ctx context.Context, enrollmentID, readerID, branc
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Fetch and lock the enrollment.
+	// When branchID is empty (administrator scope) skip the branch filter to
+	// allow cross-branch drops without a uuid parse error on the empty string.
+	where := "WHERE id = $1 AND reader_id = $2 AND branch_id = $3"
+	args := []any{enrollmentID, readerID, branchID}
+	if branchID == "" {
+		where = "WHERE id = $1 AND reader_id = $2"
+		args = []any{enrollmentID, readerID}
+	}
 	e := &model.Enrollment{}
-	err = tx.QueryRow(ctx, `
-		SELECT `+enrollmentSelectCols+`
-		FROM lms.enrollments
-		WHERE id = $1 AND reader_id = $2 AND branch_id = $3
-		FOR UPDATE`,
-		enrollmentID, readerID, branchID,
+	err = tx.QueryRow(ctx,
+		`SELECT `+enrollmentSelectCols+` FROM lms.enrollments `+where+` FOR UPDATE`,
+		args...,
 	).Scan(
 		&e.ID, &e.ProgramID, &e.ReaderID, &e.BranchID,
 		&e.Status, &e.EnrollmentChannel, &e.WaitlistPosition,

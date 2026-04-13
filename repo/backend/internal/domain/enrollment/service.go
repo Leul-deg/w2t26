@@ -195,10 +195,16 @@ func (s *Service) Enroll(ctx context.Context, req EnrollReaderRequest) (*model.E
 	}
 
 	// ── Atomic enroll (checks 7–9 inside the transaction) ─────────────────────
+	// Administrators have an empty context branch scope (""). For the enrollment
+	// record we need a concrete branch_id, so fall back to the program's branch.
+	enrollBranchID := req.BranchID
+	if enrollBranchID == "" {
+		enrollBranchID = prog.BranchID
+	}
 	enrollment, err := s.repo.Enroll(ctx, EnrollRequest{
 		ProgramID:         req.ProgramID,
 		ReaderID:          req.ReaderID,
-		BranchID:          req.BranchID,
+		BranchID:          enrollBranchID,
 		EnrollmentChannel: req.EnrollmentChannel,
 		EnrolledByUserID:  req.ActorUserID,
 		WorkstationID:     req.WorkstationID,

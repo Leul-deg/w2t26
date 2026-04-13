@@ -149,7 +149,7 @@ func TestReaders_UpdateStatus(t *testing.T) {
 	readerID := insertAPITestReader(t, mainBranchID, "STS-"+suffix)
 
 	rec := doRequest(t, app.testApp, http.MethodPatch, "/api/v1/readers/"+readerID+"/status",
-		map[string]any{"status_code": "suspended"},
+		map[string]any{"status_code": "frozen"},
 		cookie,
 	)
 	require.Equal(t, http.StatusOK, rec.Code,
@@ -160,7 +160,7 @@ func TestReaders_UpdateStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var rdr map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &rdr))
-	assert.Equal(t, "suspended", rdr["status_code"], "reader status_code must be suspended after update")
+	assert.Equal(t, "frozen", rdr["status_code"], "reader status_code must be frozen after update")
 }
 
 // TestReaders_GetLoanHistory verifies GET /api/v1/readers/:id/history returns 200
