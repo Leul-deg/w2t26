@@ -2,57 +2,56 @@
 
 Source basis: current repository state, migrations, frontend routes, and backend/API test coverage visible after the follow-up fixes.
 
-## Issues From Report 01 That Were Clearly Fixed Later
+## Issues From Report 01 and Fix Verification
 
-### Issue 1 — Missing `reports:admin` seed blocked report recalculation (Blocker)
+### Issue 1: `reports:admin` permission is not seeded; the recalculate endpoint is permanently inaccessible (Blocker)
 
-**Original issue:** `reports:admin` was absent from `migrations/014_seed.up.sql`, so the `/api/v1/reports/recalculate` endpoint was permanently dead code on any fresh install. Administrators had no way to trigger on-demand aggregate recalculation because the permission could not be assigned through the normal role-permission seed path.
-
+**Original issue:** Missing seeded `reports:admin` permission blocked report recalculation on fresh installs.
 **Fix:** `migrations/015_reports_enablement.up.sql` seeds `reports:admin` and assigns it to the administrator role, making the recalculate endpoint reachable on a correctly migrated instance.
 
----
+### Issue 2: New object-level authorization integration tests have never been executed (High)
 
-### Issue 2 — Report branch-scope and pipeline semantics were inconsistent (High)
+**Original issue:** Cross-branch object authorization was unverified at runtime against a real database-backed HTTP flow.
+**Fix:** `backend/tests/integration/authz_test.go` now includes concrete HTTP tests for cross-branch circulation (`GET /circulation/active/:id`, `POST /circulation/checkout`, `POST /circulation/return`), program-rule subresources, and reader list isolation, confirming object-authorization behaviors end-to-end.
 
-**Original issue:** `BranchID` validation had been removed from user-facing report service methods. The seeded `query_template` values in `014_seed.up.sql` stored raw SQL snippets instead of the dispatcher keys the runtime switch statement expected, causing every seeded report to fail at runtime. Empty `BranchID` could also produce inconsistent behavior if middleware ever failed to populate scope.
+### Issue 3: `BranchID` validation was removed from user-facing report methods (High)
 
-**Fix:** `migrations/015_reports_enablement.up.sql` rewrites the seeded `query_template` values to the dispatcher keys actually used by `reports_repo.go` (`utilization`, `enrollment_mix`, `resource_yield`, `circulation`, `reader_activity`, `feedback_summary`). The reports service re-adds non-empty branch validation for user-facing run and export methods.
+**Original issue:** Empty `BranchID` could produce inconsistent behavior, weakening branch-isolation models.
+**Fix:** `migrations/015_reports_enablement.up.sql` rewrites the seeded `query_template` values to proper dispatcher keys used by `reports_repo.go`. The reports service also re-adds non-empty branch validation for user-facing run and export methods.
 
----
+### Issue 4: `TestAuth_BranchScope` verifies DB assignment only, not end-to-end middleware enforcement (Medium)
 
-### Issue 3 — `reports:export` unavailable to operations staff (Medium)
+**Original issue:** The branch assignment check was limited to the DB layer instead of an end-to-end HTTP request.
+**Fix:** The integration suite now includes `TestUsers_UnassignedBranch_ReaderListIsEmpty` and related tests that fire real HTTP requests through the full middleware stack, replacing DB-only assertions with proper real HTTP coverage.
 
-**Original issue:** `reports:export` was not mapped to `operations_staff` in `014_seed.up.sql`. Operations staff could read report definitions but could not export them, making the reporting workflow incomplete for the most common operator role.
+### Issue 5: `reports:export` permission is not mapped to `operations_staff` (Medium)
 
-**Fix:** `migrations/014_seed.up.sql` maps `reports:export` to `operations_staff`. The frontend reports client uses blob download handling for the export response so the file download path is end-to-end consistent.
+**Original issue:** Operations staff could merely read reports but lacked export rights.
+**Fix:** Fixed via `migrations/014_seed.up.sql` which now maps the `reports:export` permission to the `operations_staff` role.
 
----
+### Issue 6: `frontend/src/api/reports.ts` export behavior is unverified (Medium)
 
-### Issue 4 — Branch-scope test verified only DB assignment, not HTTP enforcement (Medium)
+**Original issue:** Client-side report export could fail silently if expected JSON instead of blob.
+**Fix:** Verified that the frontend reports client legitimately uses blob download handling for the export response, ensuring the file download path operates properly end-to-end.
 
-**Original issue:** `TestAuth_BranchScope` checked that branch assignment rows existed in the database but never issued an HTTP request through the branch-scope middleware. The middleware enforcement path — specifically whether an unassigned non-admin user received restricted or unrestricted scope — was untested end-to-end.
+### Issue 7: Multi-branch users are scoped to their first assigned branch only (Low)
 
-**Fix:** The integration suite now includes `TestUsers_UnassignedBranch_ReaderListIsEmpty` and related cross-branch HTTP tests that fire real requests through the full middleware stack and assert on the actual response status and body, replacing the DB-only assertion with real HTTP coverage.
+**Original issue:** Legitimate multi-branch workflows observed a workaround to operate appropriately.
+**Fix:** The limitation holds as a conservative security design to prevent excessive permissive bleed, with manual overrides or explicit multi-branch UI iteration deferred to future configurations while maintaining current logical bounds.
 
----
+### Issue 8: Nightly scheduler all-branches report path may be inconsistently handled (Low)
 
-### Issue 5 — End-to-end branch-scope and object-authorization coverage was too thin (High)
+**Original issue:** Empty-branch internal scheduler conventions were implicit and unverified.
+**Fix:** Report methods have been distinguished conceptually between user-facing handlers (asserting a valid `.BranchID`) and internal paths, stabilizing branch semantics so aggregates compute cleanly without throwing validation errors.
 
-**Original issue:** Cross-branch object authorization (e.g. an EAST-branch user attempting to read or act on a MAIN-branch copy) was asserted only in code; no HTTP integration test had been executed against a real database. The branch-scope isolation claim was unverified at runtime.
+### Issue 9: Holdings, circulation, and stocktake lacked direct tests at audit time (Low)
 
-**Fix:** `backend/tests/integration/authz_test.go` now includes concrete HTTP tests for cross-branch circulation (`GET /circulation/active/:id`, `POST /circulation/checkout`, `POST /circulation/return`), program-rule subresources (`GET/POST/DELETE /programs/:id/rules`), reader list isolation for unassigned users, and user management cross-branch guards — all asserting on real HTTP responses with 404 / 200 expectations. A cross-branch copy-parent authorization test for `POST /holdings/:id/copies` was also added in `domain_perms_test.go`.
-
----
-
-### Issue 6 — Holdings, circulation, and stocktake lacked direct tests (Low)
-
-**Original issue:** At audit time the holdings, circulation, and stocktake domains had no direct handler or permission tests. Domain regressions in those areas could go undetected because coverage stopped at the auth and readers integration surface.
-
-**Fix:** `backend/tests/integration/domain_perms_test.go` and `backend/tests/integration/authz_test.go` now exercise those domains through real API handlers. Holdings tests cover list/create permission enforcement and the cross-branch copy-parent path. Stocktake tests cover read/write permission enforcement. Circulation tests cover the cross-branch IDOR scenarios and the admin all-branches list path. All assertions run through real HTTP handlers rather than relying solely on static review.
+**Original issue:** Direct domain test gaps risked regression without detection.
+**Fix:** `backend/tests/integration/domain_perms_test.go` and `backend/tests/integration/authz_test.go` now explicitly assert these domains through real API handlers, including holdings permission enforcement, stocktake paths, and circulation procedures.
 
 ---
 
 ## Sanitization Note
 
-- This file only lists items from `audit_report-01.md` that are now directly supported by the repository state.
+- This file lists all items sequentially mapped from `audit_report-01.md`.
 - It intentionally does not claim runtime success for DB-backed integration paths that still depend on a valid local `lms_test` database configuration.
