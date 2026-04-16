@@ -6,7 +6,44 @@ bulk import/export, configurable analytics, and compliance-oriented audit loggin
 
 ---
 
-## Quick Start (TL;DR for reviewers)
+## Quick Start (Docker — recommended)
+
+**Requirements:** Docker with the Compose plugin (`docker compose version` ≥ v2).
+No Go, Node.js, or PostgreSQL installation required.
+
+```bash
+# 1 — Start all services (postgres + backend + frontend)
+docker compose up -d
+
+# 2 — Verify backend is ready
+curl http://localhost:$(docker compose port backend 8080 | cut -d: -f2)/api/v1/health
+# {"status":"ok","version":"0.1.0"}
+
+# 3 — Open the frontend
+#   http://localhost:<port shown by: docker compose port frontend 3000>
+```
+
+Docker Compose handles: PostgreSQL setup, encryption key generation, schema
+migrations, and dependency installation. All services start in the correct order.
+
+> **Port note:** ports are assigned dynamically to avoid conflicts with local
+> services. Run `docker compose port backend 8080` and
+> `docker compose port frontend 3000` to see the actual host ports.
+
+### Run the full test suite (Docker)
+
+```bash
+./run_tests.sh
+```
+
+`run_tests.sh` resets the test database, runs backend unit tests, frontend
+type-check + tests, and all API integration tests — entirely inside containers.
+
+---
+
+## Quick Start (local toolchain)
+
+Requires Go 1.24, Node.js 18+, and a running PostgreSQL instance.
 
 ```bash
 # 1 — Postgres setup (run once as superuser)
@@ -178,27 +215,16 @@ Sign in with `admin` / `Admin1234!`.
 
 ## Seed Demo Credentials
 
-| Username | Password | Role | Permissions |
-|---|---|---|---|
-| `admin` | `Admin1234!` | Administrator | All permissions |
+All three accounts are seeded automatically by migrations and are ready to use
+immediately after `docker compose up` or a local `go run ./cmd/migrate up`.
 
-To create additional accounts for testing specific roles, insert directly into the database:
+| Username | Password | Role | Branch | Notes |
+|---|---|---|---|---|
+| `admin` | `Admin1234!` | Administrator | MAIN + EAST | All permissions across all branches |
+| `ops1` | `Staff1234!` | operations_staff | MAIN | Reader/holdings/circulation/import/export |
+| `mod1` | `Moderate1234!` | content_moderator | MAIN | Content review, feedback, appeals |
 
-```sql
--- Example: create a content_moderator user
-INSERT INTO lms.users (username, email, password_hash)
-  VALUES ('moderator1', 'mod@test.local', '$2a$12$...');  -- bcrypt hash
-
-INSERT INTO lms.user_roles (user_id, role_id)
-  SELECT u.id, r.id FROM lms.users u, lms.roles r
-  WHERE u.username = 'moderator1' AND r.name = 'content_moderator';
-
-INSERT INTO lms.user_branch_assignments (user_id, branch_id)
-  SELECT u.id, b.id FROM lms.users u, lms.branches b
-  WHERE u.username = 'moderator1' AND b.code = 'MAIN';
-```
-
-**Change the admin password in any non-development environment.**
+**Change these passwords (or drop migration 018) in any non-development environment.**
 
 ---
 
@@ -214,6 +240,20 @@ Full permission mappings are defined in `migrations/014_seed.up.sql` and `migrat
 
 ## Test Commands
 
+### All tests — one command (Docker, recommended)
+
+```bash
+./run_tests.sh
+```
+
+Resets the `lms_test` database, then runs in sequence inside Docker containers:
+1. Backend unit tests (`go test ./internal/...`)
+2. Frontend lint + type-check (`npm run lint`)
+3. Frontend component tests (`npm run test`)
+4. Backend API integration tests (`go test ./API_TESTS/... -v`)
+
+No local Go, Node.js, or PostgreSQL installation required.
+
 ### Unit tests (no database required)
 
 ```bash
@@ -223,16 +263,17 @@ go test ./internal/...
 
 Covers: config, all domain services (appeals, content, enrollment, exports, feedback, imports, moderation, reports), and handler permission enforcement.
 
-### Integration tests (require `lms_test` database)
+### API integration tests (require `lms_test` database)
 
 ```bash
 cd backend
 DATABASE_TEST_URL=postgres://lms_user:changeme@localhost:5432/lms_test?sslmode=disable \
-  go test ./tests/integration/... -v
+  go test ./API_TESTS/... -v
 ```
 
-Integration tests skip automatically if `DATABASE_TEST_URL` is not set.
-Tests use isolated transactions and are safe to run repeatedly.
+All API tests use `httptest.NewRequest` routed through a real Echo app backed by
+a live PostgreSQL connection — no mocking at any layer. Tests cover 103 endpoints
+across auth, RBAC, branch-scope isolation, full CRUD lifecycles, and conflict scenarios.
 
 **Covered paths:**
 - Successful login → 200 + session cookie

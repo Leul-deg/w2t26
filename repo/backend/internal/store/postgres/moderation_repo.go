@@ -29,6 +29,13 @@ const moderationSelectCols = `
 	mi.status, mi.decision, mi.decision_reason, mi.decided_by::text, mi.decided_at,
 	mi.created_at, mi.updated_at`
 
+// moderationReturnCols is the same column list without a table alias, for use
+// in INSERT ... RETURNING and any query where the table is not aliased as "mi".
+const moderationReturnCols = `
+	id::text, content_id::text, assigned_to::text,
+	status, decision, decision_reason, decided_by::text, decided_at,
+	created_at, updated_at`
+
 func scanModerationItem(row pgx.Row) (*model.ModerationItem, error) {
 	m := &model.ModerationItem{}
 	err := row.Scan(
@@ -44,7 +51,7 @@ func (r *ModerationRepo) Create(ctx context.Context, item *model.ModerationItem)
 	return r.pool.QueryRow(ctx, `
 		INSERT INTO lms.moderation_items (content_id, status)
 		VALUES ($1, $2)
-		RETURNING `+moderationSelectCols,
+		RETURNING `+moderationReturnCols,
 		item.ContentID, item.Status,
 	).Scan(
 		&item.ID, &item.ContentID, &item.AssignedTo,
@@ -78,9 +85,9 @@ func (r *ModerationRepo) GetByID(ctx context.Context, id, branchID string) (*mod
 func (r *ModerationRepo) GetByContentID(ctx context.Context, contentID string) (*model.ModerationItem, error) {
 	m, err := scanModerationItem(r.pool.QueryRow(ctx,
 		`SELECT `+moderationSelectCols+`
-		 FROM lms.moderation_items
-		 WHERE content_id = $1 AND status <> 'decided'
-		 ORDER BY created_at DESC LIMIT 1`, contentID))
+		 FROM lms.moderation_items mi
+		 WHERE mi.content_id = $1 AND mi.status <> 'decided'
+		 ORDER BY mi.created_at DESC LIMIT 1`, contentID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &apperr.NotFound{Resource: "moderation_item", ID: contentID}

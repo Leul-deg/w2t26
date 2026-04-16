@@ -81,11 +81,11 @@ func (r *ImportRepo) GetJob(ctx context.Context, id, branchID string) (*model.Im
 func (r *ImportRepo) UpdateJobStatus(ctx context.Context, id, status string, errorCount int, errorSummary any) error {
 	_, err := r.pool.Exec(ctx, `
 		UPDATE lms.import_jobs
-		SET    status        = $2,
+		SET    status        = $2::text,
 		       error_count   = $3,
 		       error_summary = $4::jsonb,
-		       committed_at  = CASE WHEN $2 = 'committed'    THEN NOW() ELSE committed_at  END,
-		       rolled_back_at= CASE WHEN $2 IN ('rolled_back','failed') THEN NOW() ELSE rolled_back_at END
+		       committed_at  = CASE WHEN $2::text = 'committed'    THEN NOW() ELSE committed_at  END,
+		       rolled_back_at= CASE WHEN $2::text IN ('rolled_back','failed') THEN NOW() ELSE rolled_back_at END
 		WHERE  id = $1`,
 		id, status, errorCount, marshalJSON(errorSummary),
 	)
