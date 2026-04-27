@@ -86,15 +86,13 @@ export default function ReportsPage() {
     try {
       const defs = await reportsApi.listDefinitions();
       setDefinitions(defs);
-      if (!selectedDefinitionId && defs.length > 0) {
-        setSelectedDefinitionId(defs[0].id);
-      }
+      setSelectedDefinitionId(prev => prev || (defs.length > 0 ? defs[0].id : ''));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report definitions');
     } finally {
       setLoadingDefs(false);
     }
-  }, [canRead, selectedDefinitionId]);
+  }, [canRead]);
 
   const loadAggregates = useCallback(async () => {
     if (!canRead || !selectedDefinitionId) return;

@@ -1,6 +1,8 @@
 name: lms_bundle
 
 services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16
     restart: unless-stopped
@@ -18,9 +20,15 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── Backend ─────────────────────────────────────────────────────────────────
+  # Builds the `dev` stage: golang:1.24 + psql + openssl.
+  # Source is bind-mounted so `go test` and `go run` always use current code.
+  # Migrations directory is also mounted so MIGRATIONS_PATH is resolvable.
   backend:
-    image: golang:1.24
-    working_dir: /workspace/backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,38 +42,36 @@ services:
       SESSION_INACTIVITY_SECONDS: 1800
       LOG_LEVEL: info
     ports:
-      - "8080"
+      - "8080:8080"
     volumes:
-      - .:/workspace
-      - ./backend/.env.example:/workspace/backend/.env.example:ro
-    command: >
-      bash -lc "
-      apt-get update &&
-      apt-get install -y --no-install-recommends postgresql-client openssl &&
-      openssl rand -out /tmp/lms-dev.key 32 &&
-      /usr/local/go/bin/go version &&
-      /usr/local/go/bin/go mod download &&
-      PGPASSWORD=changeme psql -h postgres -U lms_user -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'lms_test'\" | grep -q 1 || PGPASSWORD=changeme psql -h postgres -U lms_user -d postgres -c \"CREATE DATABASE lms_test OWNER lms_user;\" &&
-      /usr/local/go/bin/go run ./cmd/migrate up &&
-      /usr/local/go/bin/go run ./cmd/server
+      - ./backend:/workspace/backend
+      - ./migrations:/workspace/migrations
+    # 1. Generate a dev crypto key (readiness probe checks for this file).
+    # 2. Start the server, which applies pending migrations on the main lms DB.
+    #    lms_test is created and migrated separately by run_tests.sh.
+    command: >-
+      bash -c "
+        openssl rand -out /tmp/lms-dev.key 32 &&
+        go run ./cmd/server
       "
 
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  # Builds the `dev` stage: node:20 (Debian-based, has bash).
+  # Source is bind-mounted; node_modules are preserved in an anonymous volume
+  # that Docker initialises from the image layer (where `npm ci` ran).
   frontend:
-    image: node:20
-    working_dir: /workspace/frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
     depends_on:
       - backend
-    environment:
-      VITE_API_BASE_URL: http://localhost:58080
     ports:
-      - "3000"
+      - "3000:3000"
     volumes:
-      - .:/workspace
-    command: >
-      bash -lc "
-      npm install &&
-      npm run dev -- --host 0.0.0.0 --port 3000
-      "
+      - ./frontend:/workspace/frontend
+      - /workspace/frontend/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 3000
 
 volumes:
   postgres_data:
